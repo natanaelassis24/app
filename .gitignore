@@ -1,0 +1,42 @@
+# Gradle e saídas de build
+.gradle/
+.gradle-build-cache/
+.gradle-user/
+.android-home/
+**/build/
+
+# Configuração local do Android SDK
+local.properties
+
+# Android Studio e IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+captures/
+navigation-editor.json
+
+# Builds nativos e dados de depuração
+.externalNativeBuild/
+.cxx/
+*.hprof
+
+# Artefatos de distribuição
+*.apk
+*.aab
+*.ap_
+
+# Modelos de IA locais: devem ser distribuídos por download externo, nunca no APK/Git.
+app/src/main/assets/*.task
+app/src/main/assets/*.litertlm
+
+# Chaves e certificados locais
+*.jks
+*.keystore
+*.p12
+*.pem
+
+# Logs e arquivos do sistema operacional
+*.log
+.DS_Store
+Thumbs.db
