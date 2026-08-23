@@ -103,6 +103,8 @@ public class MainActivity extends Activity {
     private LinearLayout storyPanel;
     private ScrollView storyScroll;
     private ImageButton identifyButton;
+    private ImageButton backButton;
+    private ImageButton homeButton;
     private ImageButton tellStoryButton;
     private ImageButton goButton;
     private Button translateButton;
@@ -387,6 +389,8 @@ public class MainActivity extends Activity {
         navigationParams.setMargins(dp(16), 0, dp(16), dp(10));
         rootLayout.addView(navigation, navigationParams);
 
+        backButton = iconButton(R.drawable.ic_arrow_back, "Voltar para a página anterior");
+        homeButton = iconButton(R.drawable.ic_home, "Ir para a tela inicial");
         tellStoryButton = iconButton(R.drawable.ic_volume,
                 "Ler o texto original desta página em voz alta");
         addressBar = new EditText(this);
@@ -397,11 +401,15 @@ public class MainActivity extends Activity {
         addressBar.setHintTextColor(mutedTextColor);
         addressBar.setPadding(dp(14), 0, dp(14), 0);
         addressBar.setBackgroundColor(Color.TRANSPARENT);
+        addressBar.setMinWidth(0);
+        addressBar.setMinimumWidth(0);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
         goButton = iconButton(R.drawable.ic_search, "Pesquisar");
-        navigation.addView(tellStoryButton, new LinearLayout.LayoutParams(dp(50), dp(48)));
+        navigation.addView(backButton, new LinearLayout.LayoutParams(dp(44), dp(48)));
+        navigation.addView(homeButton, new LinearLayout.LayoutParams(dp(44), dp(48)));
+        navigation.addView(tellStoryButton, new LinearLayout.LayoutParams(dp(44), dp(48)));
         navigation.addView(addressBar, new LinearLayout.LayoutParams(0, dp(48), 1));
-        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(dp(50), dp(48));
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(dp(44), dp(48));
         goParams.setMargins(dp(8), 0, 0, 0);
         navigation.addView(goButton, goParams);
 
@@ -597,6 +605,10 @@ public class MainActivity extends Activity {
         storyParams.setMargins(dp(16), 0, dp(16), dp(8));
         rootLayout.addView(storyPanel, storyParams);
 
+        backButton.setOnClickListener(view -> {
+            if (!navigateBackInApp()) updateStatus("Não há página anterior para voltar.");
+        });
+        homeButton.setOnClickListener(view -> navigateToHome());
         goButton.setOnClickListener(view -> navigateToAddress());
         addressBar.setOnEditorActionListener((view, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_GO) {
@@ -686,6 +698,8 @@ public class MainActivity extends Activity {
         }
 
         styleOutlineIconButton(identifyButton, primaryColor);
+        styleOutlineIconButton(backButton, primaryColor);
+        styleOutlineIconButton(homeButton, primaryColor);
         styleIconButton(tellStoryButton, neutralButtonColor, onNeutralButtonColor);
         styleIconButton(goButton, primaryColor, onPrimaryColor);
         styleActionButton(translateButton);
@@ -748,6 +762,7 @@ public class MainActivity extends Activity {
         showingWelcome = true;
         if (pageTitle != null) pageTitle.setText("folio");
         if (pageSubtitle != null) pageSubtitle.setText("sua estante de histórias");
+        if (addressBar != null) addressBar.setText("");
         String background = htmlColor(backgroundColor);
         String surface = htmlColor(surfaceColor);
         String text = htmlColor(textColor);
@@ -942,6 +957,25 @@ public class MainActivity extends Activity {
             return;
         }
         browser.loadUrl("https://www.google.com/search?q=" + Uri.encode(input));
+    }
+
+    private boolean navigateBackInApp() {
+        if (storyPanel != null && storyPanel.getVisibility() == View.VISIBLE) {
+            hideStoryPanel(true);
+            updateStatus("Leitura salva — toque no volume para continuar");
+            return true;
+        }
+        if (browser == null || !browser.canGoBack()) return false;
+        browser.goBack();
+        return true;
+    }
+
+    private void navigateToHome() {
+        if (browser == null) return;
+        hideStoryPanel(true);
+        browser.stopLoading();
+        loadWelcomePage();
+        updateStatus("Tela inicial");
     }
 
     private interface PageTextCallback {
@@ -1740,12 +1774,7 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (storyPanel != null && storyPanel.getVisibility() == View.VISIBLE) {
-            hideStoryPanel(true);
-            updateStatus("Leitura salva — toque no volume para continuar");
-            return;
-        }
-        if (browser.canGoBack()) browser.goBack(); else super.onBackPressed();
+        if (!navigateBackInApp()) super.onBackPressed();
     }
 
     @Override
