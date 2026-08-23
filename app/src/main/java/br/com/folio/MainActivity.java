@@ -61,6 +61,11 @@ public class MainActivity extends Activity {
     private static final String STORY_PROGRESS_BLOCK_KEY = "story_progress_block";
     private static final String STORY_PROGRESS_OCCURRENCE_KEY = "story_progress_occurrence";
     private static final String STORY_PROGRESS_SCROLL_KEY = "story_progress_scroll";
+    private static final String RECENT_SITES_KEY = "recent_sites_v1";
+    private static final int MAX_RECENT_SITES = 4;
+    private static final int MAX_RECENT_URL_LENGTH = 2048;
+    private static final int MAX_RECENT_STORAGE_LENGTH = MAX_RECENT_SITES
+            * (MAX_RECENT_URL_LENGTH + 16);
     private static final int STORY_PROGRESS_KEY_LENGTH = 720;
     private static final long STORY_SCROLL_SAVE_DELAY_MS = 360L;
     private static final int MAX_PAGE_TEXT_CHARACTERS = 1800;
@@ -474,6 +479,7 @@ public class MainActivity extends Activity {
                     pageTitle.setText("folio");
                     pageSubtitle.setText("sua estante de histórias");
                 } else {
+                    recordRecentSite(url);
                     pageTitle.setText(view.getTitle() == null || view.getTitle().isEmpty() ? "folio" : view.getTitle());
                     pageSubtitle.setText(pageHostLabel(url));
                 }
@@ -527,8 +533,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams browserParams = new LinearLayout.LayoutParams(-1, 0, 1);
         browserParams.setMargins(dp(16), 0, dp(16), dp(8));
         rootLayout.addView(browserContainer, browserParams);
-        String lastStoryUrl = savedStoryUrl();
-        if (lastStoryUrl.isEmpty()) loadWelcomePage(); else browser.loadUrl(lastStoryUrl);
+        loadWelcomePage();
 
         tools = new FrameLayout(this);
         tools.setPadding(dp(8), dp(5), dp(8), dp(5));
@@ -823,6 +828,7 @@ public class MainActivity extends Activity {
         String muted = htmlColor(mutedTextColor);
         String primary = htmlColor(primaryColor);
         String border = htmlColor(borderColor);
+        String recentSitesHtml = recentSitesCardHtml(surface, muted, primary, border);
         String html = "<html><body style='margin:0;background:" + background
                 + ";color:" + text + ";font-family:sans-serif'>"
                 + "<main style='padding:28px 24px 32px'>"
@@ -833,6 +839,7 @@ public class MainActivity extends Activity {
                 + "<p style='color:" + muted
                 + ";font-size:16px;line-height:1.55;margin:0 0 22px'>Pesquise uma novela "
                 + "ou abra um site para acompanhar e ouvir o texto original.</p>"
+                + recentSitesHtml
                 + "<section style='background:" + surface + ";border:1px solid " + border
                 + ";border-radius:18px;padding:16px'>"
                 + "<strong style='font-size:15px'>Leitura com privacidade</strong>"
@@ -1336,6 +1343,10 @@ public class MainActivity extends Activity {
             showModelManager();
             return true;
         }
+        if (isLocalRecentSiteLink(uri)) {
+            openRecentSite(uri);
+            return true;
+        }
         if (isAllowedWebUri(uri)) return false;
         updateStatus("Por segurança, abra somente links HTTPS.");
         return true;
@@ -1344,6 +1355,36 @@ public class MainActivity extends Activity {
     private boolean isLocalAiLink(Uri uri) {
         return showingWelcome && uri != null && "folio".equalsIgnoreCase(uri.getScheme())
                 && "ai".equalsIgnoreCase(uri.getHost());
+    }
+
+    private boolean isLocalRecentSiteLink(Uri uri) {
+        return showingWelcome && uri != null && "folio".equalsIgnoreCase(uri.getScheme())
+                && "recent".equalsIgnoreCase(uri.getHost());
+    }
+
+    private void openRecentSite(Uri uri) {
+        if (browser == null || uri == null) return;
+        List<String> segments = uri.getPathSegments();
+        if (segments.size() != 1) {
+            updateStatus("Este site recente não está mais disponível.");
+            return;
+        }
+        try {
+            int index = Integer.parseInt(segments.get(0));
+            List<String> sites = recentSiteUrls();
+            if (index < 0 || index >= sites.size()) {
+                updateStatus("Este site recente não está mais disponível.");
+                return;
+            }
+            String url = sites.get(index);
+            if (!isAllowedWebUri(Uri.parse(url))) {
+                updateStatus("Este site recente não é seguro para abrir.");
+                return;
+            }
+            browser.loadUrl(url);
+        } catch (NumberFormatException error) {
+            updateStatus("Este site recente não está mais disponível.");
+        }
     }
 
     private boolean isAllowedWebUri(Uri uri) {
@@ -1688,6 +1729,91 @@ public class MainActivity extends Activity {
         return browser == null ? "" : normalizeStoryUrl(browser.getUrl());
     }
 
+    private void recordRecentSite(String url) {
+        String normalizedUrl = normalizeRecentSiteUrl(url);
+        if (normalizedUrl.isEmpty() || preferences == null) return;
+        List<String> sites = recentSiteUrls();
+        sites.remove(normalizedUrl);
+        sites.add(0, normalizedUrl);
+        while (sites.size() > MAX_RECENT_SITES) sites.remove(sites.size() - 1);
+        JSONArray stored = new JSONArray();
+        for (String site : sites) stored.put(site);
+        preferences.edit().putString(RECENT_SITES_KEY, stored.toString()).apply();
+    }
+
+    private List<String> recentSiteUrls() {
+        List<String> sites = new ArrayList<>();
+        if (preferences == null) return sites;
+        String rawSites = preferences.getString(RECENT_SITES_KEY, "");
+        if (TextUtils.isEmpty(rawSites) || rawSites.length() > MAX_RECENT_STORAGE_LENGTH) {
+            return sites;
+        }
+        try {
+            JSONArray stored = new JSONArray(rawSites);
+            for (int index = 0; index < stored.length() && sites.size() < MAX_RECENT_SITES; index++) {
+                String url = normalizeRecentSiteUrl(stored.optString(index, ""));
+                if (!url.isEmpty() && !sites.contains(url)) sites.add(url);
+            }
+        } catch (Exception ignored) {
+        }
+        return sites;
+    }
+
+    private String normalizeRecentSiteUrl(String url) {
+        if (TextUtils.isEmpty(url)) return "";
+        try {
+            Uri parsed = Uri.parse(url);
+            if (!isAllowedWebUri(parsed) || !TextUtils.isEmpty(parsed.getUserInfo())) return "";
+            String cleaned = parsed.buildUpon().clearQuery().fragment(null).build().toString();
+            return cleaned.length() <= MAX_RECENT_URL_LENGTH ? cleaned : "";
+        } catch (Exception error) {
+            return "";
+        }
+    }
+
+    private String recentSitesCardHtml(String surface, String muted, String primary, String border) {
+        List<String> sites = recentSiteUrls();
+        StringBuilder html = new StringBuilder("<section style='background:")
+                .append(surface).append(";border:1px solid ").append(border)
+                .append(";border-radius:18px;padding:16px;margin-bottom:14px'>")
+                .append("<strong style='font-size:15px'>Últimos acessados</strong>");
+        if (sites.isEmpty()) {
+            html.append("<p style='color:").append(muted)
+                    .append(";font-size:14px;line-height:1.45;margin:7px 0 0'>")
+                    .append("Nenhum site acessado ainda.</p>");
+        } else {
+            html.append("<p style='color:").append(muted)
+                    .append(";font-size:13px;line-height:1.45;margin:7px 0 4px'>")
+                    .append("Toque em um site para abrir novamente.</p>");
+            for (int index = 0; index < sites.size(); index++) {
+                html.append("<a href='folio://recent/").append(index)
+                        .append("' style='display:block;color:").append(primary)
+                        .append(";text-decoration:none;border-top:1px solid ").append(border)
+                        .append(";padding:11px 0 5px;font-size:14px;font-weight:bold'>")
+                        .append(escapeHtml(recentSiteHost(sites.get(index))))
+                        .append("<span style='display:block;color:").append(muted)
+                        .append(";font-size:12px;font-weight:normal;margin-top:3px'>Abrir site</span>")
+                        .append("</a>");
+            }
+        }
+        return html.append("</section>").toString();
+    }
+
+    private String recentSiteHost(String url) {
+        try {
+            String host = Uri.parse(url).getHost();
+            return TextUtils.isEmpty(host) ? "Site seguro" : host;
+        } catch (Exception error) {
+            return "Site seguro";
+        }
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) return "";
+        return value.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
+    }
+
     private StoryProgress savedStoryProgressForUrl(String url) {
         String normalizedUrl = normalizeStoryUrl(url);
         if (normalizedUrl.isEmpty()) return null;
@@ -1697,11 +1823,6 @@ public class MainActivity extends Activity {
         return new StoryProgress(savedUrl, savedBlockKey,
                 Math.max(0, preferences.getInt(STORY_PROGRESS_OCCURRENCE_KEY, 0)),
                 Math.max(0, preferences.getInt(STORY_PROGRESS_SCROLL_KEY, 0)));
-    }
-
-    private String savedStoryUrl() {
-        String url = preferences.getString(STORY_PROGRESS_URL_KEY, "");
-        return isAllowedWebUri(Uri.parse(url)) ? url : "";
     }
 
     private int storyBlockOccurrence(StoryBlock block) {

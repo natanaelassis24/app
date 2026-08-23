@@ -18,7 +18,7 @@ O botão de volume lê os parágrafos originais da página, sem resumir ou reesc
 
 ## Retomada
 
-O último ponto de leitura fica salvo no aparelho com a URL, o parágrafo atual e a posição de rolagem. Ao abrir o app novamente, a página é restaurada; toque no botão de volume para continuar a partir do trecho salvo. Ao concluir uma leitura naturalmente, esse ponto é removido.
+O último ponto de leitura fica salvo no aparelho com a URL, o parágrafo atual e a posição de rolagem. Ao abrir o app novamente, a tela inicial mostra os últimos sites acessados; toque no card desejado e depois no botão de volume para continuar a partir do trecho salvo. Ao concluir uma leitura naturalmente, esse ponto é removido.
 
 ## Requisitos
 
