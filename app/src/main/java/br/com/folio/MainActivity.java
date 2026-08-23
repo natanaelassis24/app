@@ -103,7 +103,6 @@ public class MainActivity extends Activity {
     private LinearLayout storyPanel;
     private ScrollView storyScroll;
     private ImageButton identifyButton;
-    private ImageButton backButton;
     private ImageButton homeButton;
     private ImageButton tellStoryButton;
     private ImageButton goButton;
@@ -389,7 +388,6 @@ public class MainActivity extends Activity {
         navigationParams.setMargins(dp(16), 0, dp(16), dp(10));
         rootLayout.addView(navigation, navigationParams);
 
-        backButton = iconButton(R.drawable.ic_arrow_back, "Voltar para a página anterior");
         homeButton = iconButton(R.drawable.ic_home, "Ir para a tela inicial");
         tellStoryButton = iconButton(R.drawable.ic_volume,
                 "Ler o texto original desta página em voz alta");
@@ -405,7 +403,6 @@ public class MainActivity extends Activity {
         addressBar.setMinimumWidth(0);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
         goButton = iconButton(R.drawable.ic_search, "Pesquisar");
-        navigation.addView(homeButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
         navigation.addView(tellStoryButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
         navigation.addView(addressBar, new LinearLayout.LayoutParams(0, dp(48), 1));
         LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(dp(48), dp(48));
@@ -571,7 +568,7 @@ public class MainActivity extends Activity {
         selectorRow.addView(new View(this), new LinearLayout.LayoutParams(dp(56), dp(1)));
         selectorRow.addView(speedControl, speedParams);
         tools.addView(selectorRow, new FrameLayout.LayoutParams(-1, dp(52), Gravity.CENTER_VERTICAL));
-        tools.addView(backButton, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
+        tools.addView(homeButton, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
         LinearLayout.LayoutParams toolsParams = new LinearLayout.LayoutParams(-1, dp(68));
         toolsParams.setMargins(dp(16), 0, dp(16), dp(8));
         rootLayout.addView(tools, toolsParams);
@@ -624,9 +621,6 @@ public class MainActivity extends Activity {
         storyParams.setMargins(dp(16), 0, dp(16), dp(8));
         rootLayout.addView(storyPanel, storyParams);
 
-        backButton.setOnClickListener(view -> {
-            if (!navigateBackInApp()) updateStatus("Não há página anterior para voltar.");
-        });
         homeButton.setOnClickListener(view -> navigateToHome());
         goButton.setOnClickListener(view -> navigateToAddress());
         addressBar.setOnEditorActionListener((view, actionId, event) -> {
@@ -717,8 +711,7 @@ public class MainActivity extends Activity {
         }
 
         styleOutlineIconButton(identifyButton, primaryColor);
-        styleIconButton(backButton, primaryColor, onPrimaryColor);
-        styleOutlineIconButton(homeButton, primaryColor);
+        styleIconButton(homeButton, primaryColor, onPrimaryColor);
         styleIconButton(tellStoryButton, neutralButtonColor, onNeutralButtonColor);
         styleIconButton(goButton, primaryColor, onPrimaryColor);
         styleActionButton(translateButton);
