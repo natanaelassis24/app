@@ -1,16 +1,35 @@
 # Folio
 
-[⬇ Baixar o APK mais recente](https://github.com/natanaelassis24/app/releases/latest/download/Folio-v2.00-debug.apk)
+<p align="center">
+  <a href="https://github.com/natanaelassis24/app/releases/download/v2.00/Folio-v2.00-debug.apk"><img src="https://img.shields.io/badge/Folio%202.00-Baixar%20para%20Android-181818?style=for-the-badge&logo=android&logoColor=white" alt="Baixar Folio 2.00 para Android" /></a>
+  <a href="https://github.com/natanaelassis24/app/releases"><img src="https://img.shields.io/badge/Ver%20releases-GitHub-58A6FF?style=for-the-badge&logo=github&logoColor=white" alt="Ver releases do Folio" /></a>
+</p>
 
-> O APK de download é publicado na última *release* do projeto. O modelo de IA não é incluído no APK, para manter o aplicativo leve e permitir atualizações separadas.
+> Leitor Android para novelas na web, com narração offline, retomada de leitura e IA local opcional.
+
+## Baixar Folio 2.00
+
+[**⬇ Baixar o APK para Android**](https://github.com/natanaelassis24/app/releases/download/v2.00/Folio-v2.00-debug.apk) · [Ver todas as versões](https://github.com/natanaelassis24/app/releases)
+
+O APK não inclui o modelo de IA, mantendo o download inicial menor. A IA pode ser baixada separadamente dentro do aplicativo.
+
+> **Instalação:** este é um APK de depuração. Se o Android informar que a assinatura é incompatível com uma versão anterior, desinstale a versão antiga antes de instalar a 2.00.
+
+## Principais recursos
+
+- Leitura de novelas diretamente em sites HTTPS.
+- Narração dos parágrafos originais, sem resumir ou alterar a história.
+- Controles de idioma e velocidade de fala.
+- Destaque do trecho narrado e rolagem acompanhando a leitura.
+- Retomada do ponto de leitura e card com os últimos sites acessados.
+- Filtro local de menus, anúncios, comentários e outros elementos que atrapalham a leitura.
+- IA local opcional para identificar obras e traduzir páginas.
 
 ## IA local opcional
 
 Na tela inicial, toque em “Gerenciar IA local” para abrir o gerenciador da IA. O Folio baixa, mediante confirmação, o modelo Qwen3 0.6B quantizado (~328 MB) para o armazenamento privado do aplicativo. O download mostra progresso, pode ser cancelado ou removido, e só é ativado após verificação de tamanho e SHA-256.
 
-A IA funciona offline depois do download e está disponível em aparelhos Android de 64 bits. Para reduzir consumo de memória, ela pode ser desativada sem apagar o arquivo do modelo.
-
-Aplicativo Android para leitura de novelas na web, com narração neural offline.
+A IA funciona offline depois do download e está disponível em aparelhos Android ARM64. Para reduzir consumo de memória, ela pode ser desativada sem apagar o arquivo do modelo.
 
 ## Leitura do site
 
@@ -27,6 +46,13 @@ O último ponto de leitura fica salvo no aparelho com a URL, o parágrafo atual 
 - Android Studio recente ou o Gradle Wrapper incluído no projeto.
 
 Na primeira compilação, o Gradle precisa de acesso à internet para obter dependências que ainda não estejam em cache.
+
+## Como instalar
+
+1. Baixe o APK pelo botão no topo desta página.
+2. Abra o arquivo no Android.
+3. Se necessário, permita a instalação por essa fonte nas configurações do sistema.
+4. Abra o Folio e escolha um site para começar a leitura.
 
 ## Como compilar
 
