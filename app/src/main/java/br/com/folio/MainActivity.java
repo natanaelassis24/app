@@ -85,7 +85,7 @@ public class MainActivity extends Activity {
     private LinearLayout rootLayout;
     private LinearLayout navigation;
     private LinearLayout storyHeader;
-    private LinearLayout tools;
+    private FrameLayout tools;
     private FrameLayout browserContainer;
     private WebView browser;
     private EditText addressBar;
@@ -405,11 +405,10 @@ public class MainActivity extends Activity {
         addressBar.setMinimumWidth(0);
         addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
         goButton = iconButton(R.drawable.ic_search, "Pesquisar");
-        navigation.addView(backButton, new LinearLayout.LayoutParams(dp(44), dp(48)));
-        navigation.addView(homeButton, new LinearLayout.LayoutParams(dp(44), dp(48)));
-        navigation.addView(tellStoryButton, new LinearLayout.LayoutParams(dp(44), dp(48)));
+        navigation.addView(homeButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        navigation.addView(tellStoryButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
         navigation.addView(addressBar, new LinearLayout.LayoutParams(0, dp(48), 1));
-        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(dp(44), dp(48));
+        LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(dp(48), dp(48));
         goParams.setMargins(dp(8), 0, 0, 0);
         navigation.addView(goButton, goParams);
 
@@ -500,13 +499,20 @@ public class MainActivity extends Activity {
         String lastStoryUrl = savedStoryUrl();
         if (lastStoryUrl.isEmpty()) loadWelcomePage(); else browser.loadUrl(lastStoryUrl);
 
-        tools = new LinearLayout(this);
-        tools.setGravity(Gravity.CENTER_VERTICAL);
-        tools.setPadding(dp(16), dp(2), dp(12), dp(2));
+        tools = new FrameLayout(this);
+        tools.setPadding(dp(8), dp(5), dp(8), dp(5));
         tools.setBackground(fieldBackground());
         tools.setElevation(dp(2));
-        languageLabel = label("Idioma", 12, textColor);
+        LinearLayout selectorRow = new LinearLayout(this);
+        selectorRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout languageControl = new LinearLayout(this);
+        languageControl.setOrientation(LinearLayout.VERTICAL);
+        languageControl.setGravity(Gravity.CENTER_VERTICAL);
+        languageControl.setPadding(dp(8), 0, dp(8), 0);
+        languageLabel = label("Idioma", 10, mutedTextColor);
         languageLabel.setSingleLine(true);
+        languageLabel.setTypeface(Typeface.create("sans", Typeface.BOLD));
         languageSelector = new Spinner(this);
         languageSelector.setContentDescription("Escolha o idioma da voz");
         languageAdapter = createLanguageAdapter();
@@ -527,8 +533,13 @@ public class MainActivity extends Activity {
             @Override public void onNothingSelected(AdapterView<?> parent) {
             }
         });
-        speechSpeedLabel = label("Veloc.", 12, textColor);
+        LinearLayout speedControl = new LinearLayout(this);
+        speedControl.setOrientation(LinearLayout.VERTICAL);
+        speedControl.setGravity(Gravity.CENTER_VERTICAL);
+        speedControl.setPadding(dp(8), 0, dp(8), 0);
+        speechSpeedLabel = label("Velocidade", 10, mutedTextColor);
         speechSpeedLabel.setSingleLine(true);
+        speechSpeedLabel.setTypeface(Typeface.create("sans", Typeface.BOLD));
         speechSpeedSelector = new Spinner(this);
         speechSpeedSelector.setContentDescription("Escolha a velocidade da voz");
         speechSpeedAdapter = createSpeechSpeedAdapter();
@@ -549,11 +560,19 @@ public class MainActivity extends Activity {
             @Override public void onNothingSelected(AdapterView<?> parent) {
             }
         });
-        tools.addView(languageLabel, new LinearLayout.LayoutParams(dp(58), dp(48)));
-        tools.addView(languageSelector, new LinearLayout.LayoutParams(0, dp(48), 1));
-        tools.addView(speechSpeedLabel, new LinearLayout.LayoutParams(dp(52), dp(48)));
-        tools.addView(speechSpeedSelector, new LinearLayout.LayoutParams(dp(80), dp(48)));
-        LinearLayout.LayoutParams toolsParams = new LinearLayout.LayoutParams(-1, dp(54));
+        languageControl.addView(languageLabel, new LinearLayout.LayoutParams(-1, dp(20)));
+        languageControl.addView(languageSelector, new LinearLayout.LayoutParams(-1, dp(32)));
+        speedControl.addView(speechSpeedLabel, new LinearLayout.LayoutParams(-1, dp(20)));
+        speedControl.addView(speechSpeedSelector, new LinearLayout.LayoutParams(-1, dp(32)));
+
+        LinearLayout.LayoutParams languageParams = new LinearLayout.LayoutParams(0, dp(52), 1);
+        LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(0, dp(52), 1);
+        selectorRow.addView(languageControl, languageParams);
+        selectorRow.addView(new View(this), new LinearLayout.LayoutParams(dp(56), dp(1)));
+        selectorRow.addView(speedControl, speedParams);
+        tools.addView(selectorRow, new FrameLayout.LayoutParams(-1, dp(52), Gravity.CENTER_VERTICAL));
+        tools.addView(backButton, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER));
+        LinearLayout.LayoutParams toolsParams = new LinearLayout.LayoutParams(-1, dp(68));
         toolsParams.setMargins(dp(16), 0, dp(16), dp(8));
         rootLayout.addView(tools, toolsParams);
 
@@ -685,8 +704,8 @@ public class MainActivity extends Activity {
         if (storyLabel != null) storyLabel.setTextColor(textColor);
         if (storyMeta != null) storyMeta.setTextColor(mutedTextColor);
         if (storyContent != null) storyContent.setTextColor(textColor);
-        if (languageLabel != null) languageLabel.setTextColor(textColor);
-        if (speechSpeedLabel != null) speechSpeedLabel.setTextColor(textColor);
+        if (languageLabel != null) languageLabel.setTextColor(mutedTextColor);
+        if (speechSpeedLabel != null) speechSpeedLabel.setTextColor(mutedTextColor);
         if (addressBar != null) {
             addressBar.setTextColor(textColor);
             addressBar.setHintTextColor(mutedTextColor);
@@ -698,7 +717,7 @@ public class MainActivity extends Activity {
         }
 
         styleOutlineIconButton(identifyButton, primaryColor);
-        styleOutlineIconButton(backButton, primaryColor);
+        styleIconButton(backButton, primaryColor, onPrimaryColor);
         styleOutlineIconButton(homeButton, primaryColor);
         styleIconButton(tellStoryButton, neutralButtonColor, onNeutralButtonColor);
         styleIconButton(goButton, primaryColor, onPrimaryColor);
@@ -802,15 +821,19 @@ public class MainActivity extends Activity {
     }
 
     private ArrayAdapter<String> createLanguageAdapter() {
-        String[] languages = {"Português (voz narradora)", "English (celular)",
-                "Español (celular)", "Français (celular)"};
+        String[] languages = {"Português — voz narradora", "Inglês — voz do celular",
+                "Espanhol — voz do celular", "Francês — voz do celular"};
+        String[] compactLanguages = {"Português", "Inglês", "Espanhol", "Francês"};
         return new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, languages) {
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
                 TextView view = (TextView) super.getView(position, convertView, parent);
+                view.setText(compactLanguages[position]);
                 view.setTextColor(textColor);
-                view.setTextSize(14);
-                view.setPadding(dp(8), 0, dp(4), 0);
+                view.setTextSize(13);
+                view.setSingleLine(true);
+                view.setEllipsize(TextUtils.TruncateAt.END);
+                view.setPadding(0, 0, dp(2), 0);
                 return view;
             }
 
@@ -827,14 +850,15 @@ public class MainActivity extends Activity {
     }
 
     private ArrayAdapter<String> createSpeechSpeedAdapter() {
-        String[] speeds = {"0,75x", "1x", "1,25x", "1,5x"};
+        String[] speeds = {"0,75×", "1×", "1,25×", "1,5×"};
         return new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, speeds) {
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
                 TextView view = (TextView) super.getView(position, convertView, parent);
                 view.setTextColor(textColor);
-                view.setTextSize(14);
-                view.setPadding(dp(4), 0, dp(2), 0);
+                view.setTextSize(13);
+                view.setSingleLine(true);
+                view.setPadding(0, 0, dp(2), 0);
                 return view;
             }
 
