@@ -34,6 +34,13 @@ O APK de depuração será gerado em `app/build/outputs/apk/debug/app-debug.apk`
 
 Em macOS ou Linux, use `./gradlew assembleDebug`.
 
+## Licença
+
+O Folio é software proprietário de **Propriedade Digital Privada**. Não é
+licenciado sob MIT nem sob outra licença de código aberto; cópia, modificação,
+redistribuição e uso comercial exigem autorização expressa. Consulte
+[`LICENSE`](LICENSE).
+
 ## Narração offline
 
 Escolha o idioma no seletor antes de tocar no volume. Português usa a voz neural local Supertonic 3 M5, masculina e configurada para narração, com funcionamento offline. Inglês, espanhol e francês usam a voz correspondente instalada no celular, sem traduzir ou reescrever o texto do site. Caso uma voz não esteja disponível, instale-a nas configurações Android de **Texto para fala**.
