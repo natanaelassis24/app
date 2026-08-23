@@ -260,7 +260,7 @@ public final class LocalModelManager {
             connection.setConnectTimeout(20_000);
             connection.setReadTimeout(30_000);
             connection.setRequestProperty("Accept-Encoding", "identity");
-            connection.setRequestProperty("User-Agent", "Folio-Android/1.9");
+            connection.setRequestProperty("User-Agent", "Folio-Android/2.00");
             throwIfCancelled();
             int responseCode = connection.getResponseCode();
             if (responseCode < HttpsURLConnection.HTTP_OK

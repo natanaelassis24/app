@@ -1,6 +1,6 @@
 # Folio
 
-[⬇ Baixar o APK mais recente](https://github.com/natanaelassis24/app/releases/latest/download/Folio-v1.9-debug.apk)
+[⬇ Baixar o APK mais recente](https://github.com/natanaelassis24/app/releases/latest/download/Folio-v2.00-debug.apk)
 
 > O APK de download é publicado na última *release* do projeto. O modelo de IA não é incluído no APK, para manter o aplicativo leve e permitir atualizações separadas.
 
