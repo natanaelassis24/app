@@ -16,7 +16,7 @@ O último ponto de leitura fica salvo no aparelho com a URL, o parágrafo atual 
 
 ## Requisitos
 
-- JDK 17.
+- JDK 21.
 - Android SDK com a plataforma Android 35 (`compileSdk 35`).
 - Android Studio recente ou o Gradle Wrapper incluído no projeto.
 
