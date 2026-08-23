@@ -1,10 +1,8 @@
-Coloque neste diretório um modelo MediaPipe GenAI compatível em formato .task.
+A IA local não é incluída neste APK.
 
-O app detecta automaticamente o primeiro arquivo .task. Uma alternativa menor é:
+No aplicativo, toque no ícone de brilho (IA local) para baixar opcionalmente o modelo
+Qwen3 0.6B em formato LiteRT-LM. O arquivo é salvo no armazenamento privado do app,
+verificado antes do uso e pode ser removido na mesma tela.
 
-Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task
-
-Download:
-https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct
-
-O arquivo do modelo não é incluído no projeto. Alguns modelos exigem login e aceite de licença.
+Não coloque modelos .task nesta pasta: o Folio usa o download verificado de um arquivo
+.litertlm para evitar que o APK fique muito grande.

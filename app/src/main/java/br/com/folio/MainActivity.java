@@ -2,6 +2,7 @@ package br.com.folio;
 
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
@@ -102,9 +103,10 @@ public class MainActivity extends Activity {
     private TextView speechSpeedLabel;
     private LinearLayout storyPanel;
     private ScrollView storyScroll;
-    private ImageButton identifyButton;
+    private Button identifyButton;
     private ImageButton homeButton;
     private ImageButton tellStoryButton;
+    private ImageButton aiButton;
     private ImageButton goButton;
     private Button translateButton;
     private Button closeStoryButton;
@@ -118,11 +120,22 @@ public class MainActivity extends Activity {
     private ArrayAdapter<String> languageAdapter;
     private ArrayAdapter<String> speechSpeedAdapter;
     private SharedPreferences preferences;
+    private LocalModelManager modelManager;
+    private AlertDialog modelDialog;
+    private TextView modelStatusText;
+    private TextView modelProgressText;
+    private ProgressBar modelProgressIndicator;
+    private Button modelPrimaryButton;
+    private Button modelRemoveButton;
+    private LinearLayout modelActionsRow;
+    private final LocalModelManager.Listener modelListener = this::onModelStateChanged;
     private volatile NeuralTtsService narrator;
     private volatile boolean narratorLoading;
     private volatile LocalLlmService localLlm;
     private volatile boolean destroyed;
     private volatile boolean llmLoading;
+    private volatile boolean llmUnloading;
+    private String llmActivationError = "";
     private String pendingSpeech;
     private List<StoryBlock> pendingSiteBlocks;
     private int pendingSiteNarrationSessionId;
@@ -166,11 +179,26 @@ public class MainActivity extends Activity {
         darkMode = preferences.getBoolean(DARK_MODE_KEY, systemUsesDarkMode);
         configurePalette();
         applySystemBarTheme();
+        modelManager = LocalModelManager.getInstance(getApplicationContext());
         setContentView(createApp());
         applyTheme(false, backgroundColor, themeTrackColor);
+        modelManager.addListener(modelListener);
     }
 
     private void prepareLocalLlm() {
+        LocalModelManager manager = modelManager;
+        if (manager == null || !manager.isModelReady()) {
+            showModelManager();
+            return;
+        }
+        synchronized (serviceLock) {
+            if (destroyed || localLlm != null || llmLoading || llmUnloading) return;
+            llmLoading = true;
+            llmActivationError = "";
+        }
+        updateModelActionAvailability();
+        refreshModelDialog();
+        updateStatus("Preparando IA local...");
         new Thread(() -> {
             LocalLlmService loaded = null;
             try {
@@ -190,17 +218,22 @@ public class MainActivity extends Activity {
                 postToUi(() -> {
                     updateStatus("IA pronta");
                     updateModelActionAvailability();
+                    refreshModelDialog();
                 });
             } catch (RuntimeException | LinkageError error) {
                 synchronized (serviceLock) {
                     if (!destroyed) {
                         localLlm = null;
                         llmLoading = false;
+                        llmActivationError = error.getMessage() == null
+                                ? "Não foi possível iniciar a IA neste aparelho."
+                                : error.getMessage();
                     }
                 }
                 postToUi(() -> {
-                    updateStatus("Navegador pronto — IA indisponível");
+                    updateStatus("Não foi possível ativar a IA local");
                     updateModelActionAvailability();
+                    refreshModelDialog();
                 });
             }
         }, "folio-llm-loader").start();
@@ -280,7 +313,7 @@ public class MainActivity extends Activity {
     }
 
     private void updateModelActionAvailability() {
-        boolean available = localLlm != null;
+        boolean available = localLlm != null && !llmLoading && !llmUnloading;
         if (identifyButton != null) {
             identifyButton.setEnabled(available);
             identifyButton.setAlpha(available ? 1.0f : 0.45f);
@@ -391,6 +424,7 @@ public class MainActivity extends Activity {
         homeButton = iconButton(R.drawable.ic_home, "Ir para a tela inicial");
         tellStoryButton = iconButton(R.drawable.ic_volume,
                 "Ler o texto original desta página em voz alta");
+        aiButton = iconButton(R.drawable.ic_spark, "Gerenciar IA local");
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
         addressBar.setHint("Digite um site ou pesquise uma novela");
@@ -404,6 +438,7 @@ public class MainActivity extends Activity {
         addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
         goButton = iconButton(R.drawable.ic_search, "Pesquisar");
         navigation.addView(tellStoryButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        navigation.addView(aiButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
         navigation.addView(addressBar, new LinearLayout.LayoutParams(0, dp(48), 1));
         LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(dp(48), dp(48));
         goParams.setMargins(dp(8), 0, 0, 0);
@@ -623,6 +658,7 @@ public class MainActivity extends Activity {
 
         homeButton.setOnClickListener(view -> navigateToHome());
         goButton.setOnClickListener(view -> navigateToAddress());
+        aiButton.setOnClickListener(view -> showModelManager());
         addressBar.setOnEditorActionListener((view, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_GO) {
                 navigateToAddress();
@@ -710,11 +746,20 @@ public class MainActivity extends Activity {
             loadingIndicator.setIndeterminateTintList(ColorStateList.valueOf(primaryColor));
         }
 
-        styleOutlineIconButton(identifyButton, primaryColor);
+        styleActionButton(identifyButton);
         styleIconButton(homeButton, primaryColor, onPrimaryColor);
         styleIconButton(tellStoryButton, neutralButtonColor, onNeutralButtonColor);
+        styleOutlineIconButton(aiButton, primaryColor);
         styleIconButton(goButton, primaryColor, onPrimaryColor);
         styleActionButton(translateButton);
+        styleActionButton(modelPrimaryButton);
+        styleOutlineButton(modelRemoveButton);
+        if (modelStatusText != null) modelStatusText.setTextColor(textColor);
+        if (modelProgressText != null) modelProgressText.setTextColor(mutedTextColor);
+        if (modelProgressIndicator != null) {
+            modelProgressIndicator.setProgressTintList(ColorStateList.valueOf(primaryColor));
+            modelProgressIndicator.setIndeterminateTintList(ColorStateList.valueOf(primaryColor));
+        }
         if (languageSelector != null) {
             languageSelector.setBackgroundTintList(ColorStateList.valueOf(primaryColor));
             languageSelector.setPopupBackgroundDrawable(fieldBackground());
@@ -796,8 +841,335 @@ public class MainActivity extends Activity {
                 + "<strong style='font-size:15px'>Leitura com privacidade</strong>"
                 + "<p style='color:" + muted
                 + ";font-size:14px;line-height:1.45;margin:7px 0 0'>A leitura e a voz são "
-                + "processadas no próprio aparelho.</p></section></main></body></html>";
+                + "processadas no próprio aparelho.</p></section>"
+                + "<a href='folio://ai' style='display:block;color:" + text
+                + ";text-decoration:none;margin-top:14px'><section style='background:" + surface
+                + ";border:1px solid " + border + ";border-radius:18px;padding:16px'>"
+                + "<strong style='font-size:15px'>IA local opcional</strong>"
+                + "<p style='color:" + muted
+                + ";font-size:14px;line-height:1.45;margin:7px 0 12px'>Baixe uma IA para "
+                + "identificar obras e traduzir páginas sem enviar seu texto para a nuvem.</p>"
+                + "<span style='display:inline-block;background:" + primary + ";color:" + surface
+                + ";border-radius:12px;padding:10px 13px;font-size:13px;font-weight:bold'>"
+                + "Gerenciar IA local</span></section></a></main></body></html>";
         browser.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+    }
+
+    private void onModelStateChanged(LocalModelManager.Snapshot snapshot) {
+        if (destroyed) return;
+        updateModelActionAvailability();
+        refreshModelDialog(snapshot);
+    }
+
+    private void showModelManager() {
+        LocalModelManager manager = modelManager;
+        if (manager == null || destroyed || isFinishing()) return;
+        if (modelDialog != null && modelDialog.isShowing()) {
+            refreshModelDialog(manager.getSnapshot());
+            return;
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(24), dp(22), dp(24), dp(18));
+        content.setBackgroundColor(surfaceColor);
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+
+        TextView title = label("IA local", 22, textColor);
+        title.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        content.addView(title, new LinearLayout.LayoutParams(-1, dp(34)));
+        TextView description = label("Qwen3 0.6B quantizado · "
+                + LocalModelManager.formatBytes(LocalModelManager.MODEL_SIZE_BYTES),
+                13, mutedTextColor);
+        description.setSingleLine(true);
+        description.setEllipsize(TextUtils.TruncateAt.END);
+        content.addView(description, new LinearLayout.LayoutParams(-1, dp(24)));
+
+        TextView privacy = label("Depois de baixada, a IA funciona no aparelho. "
+                + "Use Wi-Fi para o download e mantenha espaço livre no celular.",
+                14, mutedTextColor);
+        privacy.setGravity(Gravity.START);
+        privacy.setLineSpacing(0, 1.1f);
+        content.addView(privacy, new LinearLayout.LayoutParams(-1, -2));
+
+        modelStatusText = label("", 14, textColor);
+        modelStatusText.setPadding(0, dp(18), 0, dp(6));
+        modelStatusText.setGravity(Gravity.START);
+        modelStatusText.setLineSpacing(0, 1.1f);
+        modelStatusText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        content.addView(modelStatusText, new LinearLayout.LayoutParams(-1, -2));
+
+        modelProgressIndicator = new ProgressBar(this, null,
+                android.R.attr.progressBarStyleHorizontal);
+        modelProgressIndicator.setMax(100);
+        modelProgressIndicator.setProgressTintList(ColorStateList.valueOf(primaryColor));
+        modelProgressIndicator.setIndeterminateTintList(ColorStateList.valueOf(primaryColor));
+        modelProgressIndicator.setVisibility(View.GONE);
+        content.addView(modelProgressIndicator, new LinearLayout.LayoutParams(-1, dp(6)));
+
+        modelProgressText = label("", 12, mutedTextColor);
+        modelProgressText.setPadding(0, dp(6), 0, dp(10));
+        modelProgressText.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        content.addView(modelProgressText, new LinearLayout.LayoutParams(-1, dp(30)));
+
+        modelPrimaryButton = actionButton("Baixar IA");
+        modelPrimaryButton.setOnClickListener(view -> handleModelPrimaryAction());
+        content.addView(modelPrimaryButton, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        modelRemoveButton = outlineButton("Remover IA deste aparelho");
+        modelRemoveButton.setOnClickListener(view -> confirmModelRemoval());
+        LinearLayout.LayoutParams removeParams = new LinearLayout.LayoutParams(-1, dp(48));
+        removeParams.setMargins(0, dp(8), 0, 0);
+        content.addView(modelRemoveButton, removeParams);
+
+        modelActionsRow = new LinearLayout(this);
+        modelActionsRow.setGravity(Gravity.CENTER_VERTICAL);
+        modelActionsRow.setPadding(0, dp(12), 0, 0);
+        identifyButton = actionButton("Identificar página");
+        identifyButton.setContentDescription("Identificar a obra nesta página com IA local");
+        identifyButton.setOnClickListener(view -> {
+            if (modelDialog != null) modelDialog.dismiss();
+            identifyBook();
+        });
+        translateButton = actionButton("Traduzir página");
+        translateButton.setContentDescription("Traduzir esta página com IA local");
+        translateButton.setOnClickListener(view -> {
+            if (modelDialog != null) modelDialog.dismiss();
+            translatePage();
+        });
+        LinearLayout.LayoutParams identifyParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+        LinearLayout.LayoutParams translateParams = new LinearLayout.LayoutParams(0, dp(48), 1);
+        translateParams.setMargins(dp(8), 0, 0, 0);
+        modelActionsRow.addView(identifyButton, identifyParams);
+        modelActionsRow.addView(translateButton, translateParams);
+        content.addView(modelActionsRow, new LinearLayout.LayoutParams(-1, dp(60)));
+
+        Button closeButton = outlineButton("Fechar");
+        LinearLayout.LayoutParams closeParams = new LinearLayout.LayoutParams(-1, dp(48));
+        closeParams.setMargins(0, dp(8), 0, 0);
+        content.addView(closeButton, closeParams);
+
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(scroll).create();
+        modelDialog = dialog;
+        closeButton.setOnClickListener(view -> dialog.dismiss());
+        dialog.setOnDismissListener(dismissed -> {
+            if (modelDialog == dialog) modelDialog = null;
+            modelStatusText = null;
+            modelProgressText = null;
+            modelProgressIndicator = null;
+            modelPrimaryButton = null;
+            modelRemoveButton = null;
+            modelActionsRow = null;
+            identifyButton = null;
+            translateButton = null;
+        });
+        dialog.show();
+        refreshModelDialog(manager.getSnapshot());
+    }
+
+    private void handleModelPrimaryAction() {
+        LocalModelManager manager = modelManager;
+        if (manager == null) return;
+        LocalModelManager.Snapshot snapshot = manager.getSnapshot();
+        if (snapshot.state == LocalModelManager.State.DOWNLOADING) {
+            manager.cancelDownload();
+            return;
+        }
+        if (snapshot.state == LocalModelManager.State.VERIFYING) return;
+        if (snapshot.state == LocalModelManager.State.READY) {
+            if (localLlm != null) {
+                deactivateLocalLlm();
+            } else if (!llmLoading && !llmUnloading) {
+                prepareLocalLlm();
+            }
+            return;
+        }
+        if (!manager.isRuntimeSupported()) {
+            Toast.makeText(this, "A IA local exige um aparelho Android de 64 bits.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        showDownloadConfirmation();
+    }
+
+    private void showDownloadConfirmation() {
+        new AlertDialog.Builder(this)
+                .setTitle("Baixar IA local?")
+                .setMessage("O modelo ocupa "
+                        + LocalModelManager.formatBytes(LocalModelManager.MODEL_SIZE_BYTES)
+                        + ". Recomendamos Wi-Fi e pelo menos "
+                        + LocalModelManager.formatBytes(LocalModelManager.REQUIRED_FREE_SPACE_BYTES)
+                        + " livres no aparelho. Após o download, o texto é processado localmente.")
+                .setNegativeButton("Agora não", null)
+                .setPositiveButton("Baixar", (dialog, which) -> {
+                    LocalModelManager manager = modelManager;
+                    if (manager != null) manager.startDownload();
+                })
+                .show();
+    }
+
+    private void confirmModelRemoval() {
+        if (llmLoading || llmUnloading) return;
+        new AlertDialog.Builder(this)
+                .setTitle("Remover IA local?")
+                .setMessage("O arquivo do modelo será removido deste aparelho. Você poderá "
+                        + "baixá-lo novamente quando quiser.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Remover", (dialog, which) -> removeLocalModel())
+                .show();
+    }
+
+    private void deactivateLocalLlm() {
+        LocalLlmService active;
+        synchronized (serviceLock) {
+            if (llmLoading || llmUnloading || localLlm == null) return;
+            active = localLlm;
+            localLlm = null;
+            llmUnloading = true;
+        }
+        refreshModelDialog();
+        LocalLlmService service = active;
+        new Thread(() -> {
+            try {
+                service.close();
+            } catch (RuntimeException ignored) {
+            } finally {
+                synchronized (serviceLock) {
+                    llmUnloading = false;
+                }
+            }
+            postToUi(() -> {
+                updateModelActionAvailability();
+                refreshModelDialog();
+                updateStatus("IA local desativada para economizar memória");
+            });
+        }, "folio-llm-unloader").start();
+    }
+
+    private void removeLocalModel() {
+        LocalModelManager manager = modelManager;
+        if (manager == null) return;
+        LocalLlmService active;
+        synchronized (serviceLock) {
+            if (llmLoading || llmUnloading) return;
+            active = localLlm;
+            localLlm = null;
+            llmUnloading = true;
+        }
+        refreshModelDialog();
+        LocalLlmService service = active;
+        boolean[] removed = new boolean[1];
+        new Thread(() -> {
+            try {
+                if (service != null) service.close();
+                removed[0] = manager.deleteModel();
+            } finally {
+                synchronized (serviceLock) {
+                    llmUnloading = false;
+                }
+            }
+            postToUi(() -> {
+                updateModelActionAvailability();
+                refreshModelDialog();
+                updateStatus(removed[0] ? "IA local removida"
+                        : "Não foi possível remover a IA local");
+            });
+        }, "folio-model-remover").start();
+    }
+
+    private void refreshModelDialog() {
+        LocalModelManager manager = modelManager;
+        if (manager != null) refreshModelDialog(manager.getSnapshot());
+    }
+
+    private void refreshModelDialog(LocalModelManager.Snapshot snapshot) {
+        if (snapshot == null || modelDialog == null || !modelDialog.isShowing()
+                || modelStatusText == null || modelProgressIndicator == null
+                || modelProgressText == null || modelPrimaryButton == null
+                || modelRemoveButton == null) return;
+        boolean downloading = snapshot.state == LocalModelManager.State.DOWNLOADING;
+        boolean verifying = snapshot.state == LocalModelManager.State.VERIFYING;
+        boolean ready = snapshot.state == LocalModelManager.State.READY;
+        boolean active = localLlm != null;
+        boolean changingEngineState = llmLoading || llmUnloading;
+
+        String status = snapshot.detail;
+        if (ready && active) {
+            status = "IA ativa no aparelho";
+        } else if (ready && llmLoading) {
+            status = "Ativando IA local...";
+        } else if (ready && !llmLoading && !llmActivationError.isEmpty()) {
+            status = "Modelo instalado. " + llmActivationError;
+        }
+        if (!modelManager.isRuntimeSupported()) {
+            status = "A IA local precisa de um aparelho Android de 64 bits.";
+        }
+        modelStatusText.setText(status);
+        modelProgressIndicator.setVisibility((downloading || verifying) ? View.VISIBLE : View.GONE);
+        modelProgressText.setVisibility((downloading || verifying || ready) ? View.VISIBLE : View.GONE);
+
+        if (downloading) {
+            modelProgressIndicator.setIndeterminate(false);
+            modelProgressIndicator.setProgress(snapshot.progressPercent());
+            String progressText = LocalModelManager.formatBytes(snapshot.downloadedBytes) + " de "
+                    + LocalModelManager.formatBytes(snapshot.totalBytes) + " ("
+                    + snapshot.progressPercent() + "%)";
+            modelProgressText.setText(progressText);
+            modelProgressIndicator.setContentDescription("Download da IA: " + progressText);
+            modelPrimaryButton.setText("Cancelar download");
+            modelPrimaryButton.setEnabled(true);
+            modelRemoveButton.setVisibility(View.GONE);
+        } else if (verifying) {
+            modelProgressIndicator.setIndeterminate(true);
+            modelProgressText.setText("Verificando segurança do arquivo");
+            modelProgressIndicator.setContentDescription("Verificando a segurança do arquivo");
+            modelPrimaryButton.setText("Verificando segurança...");
+            modelPrimaryButton.setEnabled(false);
+            modelRemoveButton.setVisibility(View.GONE);
+        } else if (ready) {
+            modelProgressText.setText("Modelo instalado · "
+                    + LocalModelManager.formatBytes(LocalModelManager.MODEL_SIZE_BYTES));
+            modelProgressIndicator.setContentDescription("Modelo de IA instalado");
+            if (llmLoading) {
+                modelPrimaryButton.setText("Ativando IA...");
+                modelPrimaryButton.setEnabled(false);
+            } else if (llmUnloading) {
+                modelPrimaryButton.setText("Desativando IA...");
+                modelPrimaryButton.setEnabled(false);
+            } else if (active) {
+                modelPrimaryButton.setText("Desativar IA");
+                modelPrimaryButton.setEnabled(true);
+            } else {
+                modelPrimaryButton.setText("Ativar IA");
+                modelPrimaryButton.setEnabled(true);
+            }
+            modelRemoveButton.setVisibility(changingEngineState ? View.GONE : View.VISIBLE);
+        } else {
+            modelProgressIndicator.setContentDescription("IA local ainda não baixada");
+            modelPrimaryButton.setText(snapshot.state == LocalModelManager.State.FAILED
+                    ? "Tentar novamente (" : "Baixar IA (");
+            modelPrimaryButton.append(LocalModelManager.formatBytes(LocalModelManager.MODEL_SIZE_BYTES) + ")");
+            modelPrimaryButton.setEnabled(modelManager.isRuntimeSupported());
+            modelRemoveButton.setVisibility(View.GONE);
+        }
+        styleActionButton(modelPrimaryButton);
+        styleOutlineButton(modelRemoveButton);
+        modelRemoveButton.setEnabled(!changingEngineState);
+
+        boolean allowActions = ready && active && !changingEngineState;
+        if (modelActionsRow != null) {
+            modelActionsRow.setVisibility(allowActions ? View.VISIBLE : View.GONE);
+        }
+        if (identifyButton != null) {
+            identifyButton.setEnabled(allowActions);
+            identifyButton.setAlpha(allowActions ? 1.0f : 0.45f);
+        }
+        if (translateButton != null) {
+            translateButton.setEnabled(allowActions);
+            translateButton.setAlpha(allowActions ? 1.0f : 0.45f);
+        }
     }
 
     private String pageHostLabel(String url) {
@@ -887,11 +1259,29 @@ public class MainActivity extends Activity {
         return button;
     }
 
+    private Button outlineButton(String text) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setTextSize(12);
+        button.setAllCaps(false);
+        button.setMinHeight(dp(44));
+        button.setPadding(dp(10), 0, dp(10), 0);
+        styleOutlineButton(button);
+        return button;
+    }
+
     private void styleActionButton(Button button) {
         if (button == null) return;
         button.setTextColor(onPrimaryColor);
         button.setBackground(buttonBackground(primaryColor));
         button.setElevation(dp(1));
+    }
+
+    private void styleOutlineButton(Button button) {
+        if (button == null) return;
+        button.setTextColor(primaryColor);
+        button.setBackground(outlineBackground(surfaceColor, borderColor));
+        button.setElevation(0);
     }
 
     private void styleReaderVoiceButton(Button button) {
@@ -952,9 +1342,18 @@ public class MainActivity extends Activity {
     }
 
     private boolean blockUnsupportedNavigation(Uri uri) {
+        if (isLocalAiLink(uri)) {
+            showModelManager();
+            return true;
+        }
         if (isAllowedWebUri(uri)) return false;
         updateStatus("Por segurança, abra somente links HTTPS.");
         return true;
+    }
+
+    private boolean isLocalAiLink(Uri uri) {
+        return showingWelcome && uri != null && "folio".equalsIgnoreCase(uri.getScheme())
+                && "ai".equalsIgnoreCase(uri.getHost());
     }
 
     private boolean isAllowedWebUri(Uri uri) {
@@ -1770,6 +2169,10 @@ public class MainActivity extends Activity {
     }
 
     private void showModelMessage() {
+        if (!llmLoading) {
+            showModelManager();
+            return;
+        }
         String message = llmLoading
                 ? "A IA local ainda está sendo preparada. Tente novamente em instantes."
                 : "A IA local não está disponível. O navegador e a leitura do texto continuam funcionando.";
@@ -1797,12 +2200,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         saveCurrentStoryScroll();
+        if (modelManager != null) modelManager.removeListener(modelListener);
+        if (modelDialog != null && modelDialog.isShowing()) modelDialog.dismiss();
         LocalLlmService llm;
         NeuralTtsService voice;
         synchronized (serviceLock) {
             destroyed = true;
             pageRequestId++;
             narratorLoading = false;
+            llmUnloading = false;
             llm = localLlm;
             voice = narrator;
             localLlm = null;

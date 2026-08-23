@@ -4,6 +4,12 @@
 
 > O APK de download é publicado na última *release* do projeto. O modelo de IA não é incluído no APK, para manter o aplicativo leve e permitir atualizações separadas.
 
+## IA local opcional
+
+Toque no ícone de brilho na barra de navegação para abrir o gerenciador da IA. O Folio baixa, mediante confirmação, o modelo Qwen3 0.6B quantizado (~328 MB) para o armazenamento privado do aplicativo. O download mostra progresso, pode ser cancelado ou removido, e só é ativado após verificação de tamanho e SHA-256.
+
+A IA funciona offline depois do download e está disponível em aparelhos Android de 64 bits. Para reduzir consumo de memória, ela pode ser desativada sem apagar o arquivo do modelo.
+
 Aplicativo Android para leitura de novelas na web, com narração neural offline.
 
 ## Leitura do site

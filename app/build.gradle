@@ -12,7 +12,6 @@ android { namespace 'br.com.folio'; compileSdk 35
 }
 
 dependencies {
-    implementation 'com.google.mediapipe:tasks-genai:0.10.27'
+    implementation 'com.google.ai.edge.litertlm:litertlm-android:0.13.1'
     implementation files('libs/sherpa-onnx-1.13.6.aar')
-    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.1.0'
 }
