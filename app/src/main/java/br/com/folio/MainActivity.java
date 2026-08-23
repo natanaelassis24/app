@@ -3,6 +3,7 @@ package br.com.folio;
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ComponentCallbacks2;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
@@ -106,7 +107,6 @@ public class MainActivity extends Activity {
     private Button identifyButton;
     private ImageButton homeButton;
     private ImageButton tellStoryButton;
-    private ImageButton aiButton;
     private ImageButton goButton;
     private Button translateButton;
     private Button closeStoryButton;
@@ -424,7 +424,6 @@ public class MainActivity extends Activity {
         homeButton = iconButton(R.drawable.ic_home, "Ir para a tela inicial");
         tellStoryButton = iconButton(R.drawable.ic_volume,
                 "Ler o texto original desta página em voz alta");
-        aiButton = iconButton(R.drawable.ic_spark, "Gerenciar IA local");
         addressBar = new EditText(this);
         addressBar.setSingleLine(true);
         addressBar.setHint("Digite um site ou pesquise uma novela");
@@ -438,7 +437,6 @@ public class MainActivity extends Activity {
         addressBar.setImeOptions(EditorInfo.IME_ACTION_GO);
         goButton = iconButton(R.drawable.ic_search, "Pesquisar");
         navigation.addView(tellStoryButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        navigation.addView(aiButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
         navigation.addView(addressBar, new LinearLayout.LayoutParams(0, dp(48), 1));
         LinearLayout.LayoutParams goParams = new LinearLayout.LayoutParams(dp(48), dp(48));
         goParams.setMargins(dp(8), 0, 0, 0);
@@ -508,6 +506,7 @@ public class MainActivity extends Activity {
         WebSettings settings = browser.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
@@ -658,7 +657,6 @@ public class MainActivity extends Activity {
 
         homeButton.setOnClickListener(view -> navigateToHome());
         goButton.setOnClickListener(view -> navigateToAddress());
-        aiButton.setOnClickListener(view -> showModelManager());
         addressBar.setOnEditorActionListener((view, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_GO) {
                 navigateToAddress();
@@ -749,7 +747,6 @@ public class MainActivity extends Activity {
         styleActionButton(identifyButton);
         styleIconButton(homeButton, primaryColor, onPrimaryColor);
         styleIconButton(tellStoryButton, neutralButtonColor, onNeutralButtonColor);
-        styleOutlineIconButton(aiButton, primaryColor);
         styleIconButton(goButton, primaryColor, onPrimaryColor);
         styleActionButton(translateButton);
         styleActionButton(modelPrimaryButton);
@@ -1304,13 +1301,6 @@ public class MainActivity extends Activity {
         if (button == null) return;
         button.setColorFilter(icon);
         button.setBackground(buttonBackground(background));
-        button.setElevation(dp(1));
-    }
-
-    private void styleOutlineIconButton(ImageButton button, int icon) {
-        if (button == null) return;
-        button.setColorFilter(icon);
-        button.setBackground(outlineBackground(surfaceColor, borderColor));
         button.setElevation(dp(1));
     }
 
@@ -2190,6 +2180,21 @@ public class MainActivity extends Activity {
         saveCurrentStoryScroll();
         if (browser != null) browser.onPause();
         super.onPause();
+    }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (browser != null && (level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+                || level == ComponentCallbacks2.TRIM_MEMORY_COMPLETE)) {
+            browser.clearCache(false);
+        }
+    }
+
+    @Override
+    public void onLowMemory() {
+        if (browser != null) browser.clearCache(false);
+        super.onLowMemory();
     }
 
     @Override

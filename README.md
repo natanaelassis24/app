@@ -6,7 +6,7 @@
 
 ## IA local opcional
 
-Toque no ícone de brilho na barra de navegação para abrir o gerenciador da IA. O Folio baixa, mediante confirmação, o modelo Qwen3 0.6B quantizado (~328 MB) para o armazenamento privado do aplicativo. O download mostra progresso, pode ser cancelado ou removido, e só é ativado após verificação de tamanho e SHA-256.
+Na tela inicial, toque em “Gerenciar IA local” para abrir o gerenciador da IA. O Folio baixa, mediante confirmação, o modelo Qwen3 0.6B quantizado (~328 MB) para o armazenamento privado do aplicativo. O download mostra progresso, pode ser cancelado ou removido, e só é ativado após verificação de tamanho e SHA-256.
 
 A IA funciona offline depois do download e está disponível em aparelhos Android de 64 bits. Para reduzir consumo de memória, ela pode ser desativada sem apagar o arquivo do modelo.
 

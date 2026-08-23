@@ -1,6 +1,6 @@
 A IA local não é incluída neste APK.
 
-No aplicativo, toque no ícone de brilho (IA local) para baixar opcionalmente o modelo
+No aplicativo, toque em “Gerenciar IA local” na tela inicial para baixar opcionalmente o modelo
 Qwen3 0.6B em formato LiteRT-LM. O arquivo é salvo no armazenamento privado do app,
 verificado antes do uso e pode ser removido na mesma tela.
 
