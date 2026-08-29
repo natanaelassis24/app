@@ -12,6 +12,8 @@ android { namespace 'br.com.folio'; compileSdk 35
 }
 
 dependencies {
-    implementation 'com.google.ai.edge.litertlm:litertlm-android:0.13.1'
+    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+    implementation 'org.apache.commons:commons-compress:1.26.2'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
     implementation files('libs/sherpa-onnx-1.13.6.aar')
 }

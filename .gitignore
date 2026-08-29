@@ -26,10 +26,6 @@ navigation-editor.json
 *.aab
 *.ap_
 
-# Modelos de IA locais: devem ser distribuídos por download externo, nunca no APK/Git.
-app/src/main/assets/*.task
-app/src/main/assets/*.litertlm
-
 # Chaves e certificados locais
 *.jks
 *.keystore

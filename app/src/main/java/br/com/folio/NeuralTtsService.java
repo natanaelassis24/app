@@ -1,13 +1,9 @@
 package br.com.folio;
 
-import android.content.Context;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
-import android.os.Bundle;
 import android.os.SystemClock;
-import android.speech.tts.TextToSpeech;
-import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 
 import com.k2fsa.sherpa.onnx.GeneratedAudio;
@@ -17,13 +13,13 @@ import com.k2fsa.sherpa.onnx.OfflineTtsConfig;
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig;
 import com.k2fsa.sherpa.onnx.OfflineTtsSupertonicModelConfig;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -31,19 +27,38 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public final class NeuralTtsService {
     public enum VoiceLanguage {
-        PORTUGUESE("português", new Locale("pt", "BR"), true),
-        ENGLISH("inglês", Locale.US, false),
-        SPANISH("espanhol", new Locale("es", "ES"), false),
-        FRENCH("francês", Locale.FRANCE, false);
+        PORTUGUESE("português", "pt", new Locale("pt", "BR")),
+        ENGLISH("inglês", "en", Locale.US);
 
         final String displayName;
+        final String modelCode;
         final Locale locale;
-        final boolean usesNeuralVoice;
 
-        VoiceLanguage(String displayName, Locale locale, boolean usesNeuralVoice) {
+        VoiceLanguage(String displayName, String modelCode, Locale locale) {
             this.displayName = displayName;
+            this.modelCode = modelCode;
             this.locale = locale;
-            this.usesNeuralVoice = usesNeuralVoice;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        public String getModelCode() {
+            return modelCode;
+        }
+
+        public Locale getLocale() {
+            return locale;
+        }
+
+        public String getPreferenceKey() {
+            return locale.toLanguageTag();
+        }
+
+        public static VoiceLanguage fromIndex(int index) {
+            VoiceLanguage[] languages = values();
+            return index >= 0 && index < languages.length ? languages[index] : PORTUGUESE;
         }
     }
 
@@ -54,8 +69,6 @@ public final class NeuralTtsService {
     }
 
     private static final String TAG = "FolioNeuralTts";
-    private static final String NARRATOR_MODEL_DIRECTORY =
-            "tts/sherpa-onnx-supertonic-3-tts-int8-2026-05-11";
     private static final int MAX_TTS_THREADS = 2;
     private static final int FIRST_SEGMENT_CHARACTERS = 320;
     private static final int MAX_SEGMENT_CHARACTERS = 650;
@@ -70,21 +83,13 @@ public final class NeuralTtsService {
     private static final float DEFAULT_SPEECH_SPEED = 1.0f;
     private static final float MIN_SPEECH_SPEED = 0.5f;
     private static final float MAX_SPEECH_SPEED = 2.0f;
-    private static final long SYSTEM_TTS_READY_TIMEOUT_MS = 4000L;
     private final ExecutorService playbackExecutor = createBoundedExecutor();
     private final ExecutorService generationExecutor = createBoundedExecutor();
-    private final ExecutorService systemSpeechExecutor = createBoundedExecutor();
     private final AtomicInteger playbackSession = new AtomicInteger();
     private final Object audioLock = new Object();
     private final Object ttsLock = new Object();
-    private final Object systemTtsLock = new Object();
-    private final ConcurrentHashMap<String, SystemUtterance> systemUtterances =
-            new ConcurrentHashMap<>();
     private OfflineTts tts;
     private AudioTrack audioTrack;
-    private TextToSpeech systemTts;
-    private volatile boolean systemTtsReady;
-    private volatile boolean systemTtsFailed;
     private volatile VoiceLanguage voiceLanguage = VoiceLanguage.PORTUGUESE;
     private volatile float speechSpeed = DEFAULT_SPEECH_SPEED;
     private volatile boolean closed;
@@ -94,17 +99,18 @@ public final class NeuralTtsService {
                 new ArrayBlockingQueue<>(1), new ThreadPoolExecutor.DiscardOldestPolicy());
     }
 
-    public NeuralTtsService(Context context) {
+    public NeuralTtsService(File modelDirectory) {
+        if (modelDirectory == null || !modelDirectory.isDirectory()) {
+            throw new IllegalArgumentException("A voz local não está instalada");
+        }
         OfflineTtsSupertonicModelConfig supertonic = new OfflineTtsSupertonicModelConfig();
-        supertonic.setDurationPredictor(NARRATOR_MODEL_DIRECTORY
-                + "/duration_predictor.int8.onnx");
-        supertonic.setTextEncoder(NARRATOR_MODEL_DIRECTORY + "/text_encoder.int8.onnx");
-        supertonic.setVectorEstimator(NARRATOR_MODEL_DIRECTORY
-                + "/vector_estimator.int8.onnx");
-        supertonic.setVocoder(NARRATOR_MODEL_DIRECTORY + "/vocoder.int8.onnx");
-        supertonic.setTtsJson(NARRATOR_MODEL_DIRECTORY + "/tts.json");
-        supertonic.setUnicodeIndexer(NARRATOR_MODEL_DIRECTORY + "/unicode_indexer.bin");
-        supertonic.setVoiceStyle(NARRATOR_MODEL_DIRECTORY + "/voice.bin");
+        supertonic.setDurationPredictor(modelPath(modelDirectory, "duration_predictor.int8.onnx"));
+        supertonic.setTextEncoder(modelPath(modelDirectory, "text_encoder.int8.onnx"));
+        supertonic.setVectorEstimator(modelPath(modelDirectory, "vector_estimator.int8.onnx"));
+        supertonic.setVocoder(modelPath(modelDirectory, "vocoder.int8.onnx"));
+        supertonic.setTtsJson(modelPath(modelDirectory, "tts.json"));
+        supertonic.setUnicodeIndexer(modelPath(modelDirectory, "unicode_indexer.bin"));
+        supertonic.setVoiceStyle(modelPath(modelDirectory, "voice.bin"));
 
         OfflineTtsModelConfig model = new OfflineTtsModelConfig();
         model.setSupertonic(supertonic);
@@ -117,45 +123,14 @@ public final class NeuralTtsService {
         OfflineTtsConfig config = new OfflineTtsConfig();
         config.setModel(model);
         config.setMaxNumSentences(4);
-        tts = new OfflineTts(context.getAssets(), config);
-        initializeSystemTts(context.getApplicationContext());
+        // A null AssetManager makes Sherpa load the validated model files from private storage.
+        tts = new OfflineTts(null, config);
     }
 
-    private void initializeSystemTts(Context context) {
-        systemTts = new TextToSpeech(context, status -> {
-            synchronized (systemTtsLock) {
-                systemTtsReady = status == TextToSpeech.SUCCESS;
-                systemTtsFailed = !systemTtsReady;
-                systemTtsLock.notifyAll();
-            }
-        });
-        systemTts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-            @Override public void onStart(String utteranceId) {
-                SystemUtterance utterance = systemUtterances.get(utteranceId);
-                if (utterance != null && utterance.startsSegment
-                        && isSessionActive(utterance.session)) {
-                    notifySegmentStarted(utterance.listener, utterance.session,
-                            utterance.segmentIndex);
-                }
-            }
-
-            @Override public void onDone(String utteranceId) {
-                SystemUtterance utterance = systemUtterances.remove(utteranceId);
-                if (utterance != null && utterance.last && isSessionActive(utterance.session)) {
-                    notifyCompleted(utterance.listener, utterance.session);
-                }
-            }
-
-            @Override public void onError(String utteranceId) {
-                SystemUtterance utterance = systemUtterances.remove(utteranceId);
-                if (utterance == null || !isSessionActive(utterance.session)) return;
-                clearSystemUtterances(utterance.session);
-                stopSystemTts();
-                notifyError(utterance.listener, utterance.session,
-                        "Não foi possível iniciar a voz de " + utterance.language.displayName
-                                + " do celular.");
-            }
-        });
+    private static String modelPath(File directory, String fileName) {
+        File file = new File(directory, fileName);
+        if (!file.isFile()) throw new IllegalArgumentException("Arquivo de voz ausente: " + fileName);
+        return file.getAbsolutePath();
     }
 
     public void setVoiceLanguage(VoiceLanguage language) {
@@ -185,17 +160,11 @@ public final class NeuralTtsService {
         if (cleanSegments.isEmpty()) return;
         final int session = playbackSession.incrementAndGet();
         stopAudio();
-        stopSystemTts();
-        VoiceLanguage selectedLanguage = voiceLanguage;
         float selectedSpeechSpeed = speechSpeed;
+        VoiceLanguage selectedVoiceLanguage = voiceLanguage;
         try {
-            if (selectedLanguage.usesNeuralVoice) {
-                playbackExecutor.execute(() -> play(session, cleanSegments, listener,
-                        selectedSpeechSpeed));
-            } else {
-                systemSpeechExecutor.execute(() -> playWithSystemVoice(session, cleanSegments,
-                        listener, selectedLanguage, selectedSpeechSpeed));
-            }
+            playbackExecutor.execute(() -> play(session, cleanSegments, listener,
+                    selectedSpeechSpeed, selectedVoiceLanguage));
         } catch (RuntimeException error) {
             Log.e(TAG, "Não foi possível iniciar a reprodução", error);
             notifyError(listener, session, "Não foi possível iniciar a voz selecionada.");
@@ -205,107 +174,10 @@ public final class NeuralTtsService {
     public void stop() {
         playbackSession.incrementAndGet();
         stopAudio();
-        stopSystemTts();
-    }
-
-    private void playWithSystemVoice(int session, List<String> segments, ProgressListener listener,
-                                     VoiceLanguage language, float speechSpeed) {
-        if (!waitForSystemTts(session, listener, language)) return;
-        List<SystemUtterance> utterances = createSystemUtterances(session, segments, listener,
-                language);
-        if (utterances.isEmpty()) {
-            notifyCompleted(listener, session);
-            return;
-        }
-        synchronized (systemTtsLock) {
-            if (!isSessionActive(session) || systemTts == null) return;
-            Locale locale = availableSystemLocale(language);
-            if (locale == null) {
-                notifyError(listener, session, unavailableVoiceMessage(language));
-                return;
-            }
-            int languageResult = systemTts.setLanguage(locale);
-            if (languageResult == TextToSpeech.LANG_MISSING_DATA
-                    || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
-                notifyError(listener, session, unavailableVoiceMessage(language));
-                return;
-            }
-            systemTts.setSpeechRate(speechSpeed);
-            systemTts.setPitch(1.0f);
-            for (SystemUtterance utterance : utterances) {
-                if (!isSessionActive(session)) {
-                    clearSystemUtterances(session);
-                    return;
-                }
-                systemUtterances.put(utterance.id, utterance);
-                int result = systemTts.speak(utterance.text, TextToSpeech.QUEUE_ADD,
-                        new Bundle(), utterance.id);
-                if (result == TextToSpeech.ERROR) {
-                    systemUtterances.remove(utterance.id);
-                    clearSystemUtterances(session);
-                    stopSystemTts();
-                    notifyError(listener, session, "Não foi possível iniciar a voz de "
-                            + language.displayName + " do celular.");
-                    return;
-                }
-            }
-        }
-    }
-
-    private boolean waitForSystemTts(int session, ProgressListener listener,
-                                     VoiceLanguage language) {
-        long deadline = SystemClock.uptimeMillis() + SYSTEM_TTS_READY_TIMEOUT_MS;
-        synchronized (systemTtsLock) {
-            while (isSessionActive(session) && !systemTtsReady && !systemTtsFailed
-                    && SystemClock.uptimeMillis() < deadline) {
-                try {
-                    systemTtsLock.wait(100L);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-            }
-            if (isSessionActive(session) && systemTtsReady && systemTts != null) return true;
-        }
-        if (isSessionActive(session)) notifyError(listener, session, unavailableVoiceMessage(language));
-        return false;
-    }
-
-    private Locale availableSystemLocale(VoiceLanguage language) {
-        if (systemTts == null) return null;
-        if (systemTts.isLanguageAvailable(language.locale) >= TextToSpeech.LANG_AVAILABLE) {
-            return language.locale;
-        }
-        Locale genericLocale = new Locale(language.locale.getLanguage());
-        return systemTts.isLanguageAvailable(genericLocale) >= TextToSpeech.LANG_AVAILABLE
-                ? genericLocale : null;
-    }
-
-    private List<SystemUtterance> createSystemUtterances(int session, List<String> segments,
-                                                           ProgressListener listener,
-                                                           VoiceLanguage language) {
-        List<SystemUtterance> utterances = new ArrayList<>();
-        int utteranceIndex = 0;
-        for (int segmentIndex = 0; segmentIndex < segments.size(); segmentIndex++) {
-            boolean startsSegment = true;
-            for (String part : splitText(segments.get(segmentIndex))) {
-                String id = "folio-system-" + session + "-" + utteranceIndex++;
-                utterances.add(new SystemUtterance(id, part, session, segmentIndex,
-                        startsSegment, listener, language));
-                startsSegment = false;
-            }
-        }
-        if (!utterances.isEmpty()) utterances.get(utterances.size() - 1).last = true;
-        return utterances;
-    }
-
-    private String unavailableVoiceMessage(VoiceLanguage language) {
-        return "A voz de " + language.displayName + " não está instalada no celular. "
-                + "Baixe-a nas configurações de Texto para fala e tente novamente.";
     }
 
     private void play(int session, List<String> segments, ProgressListener listener,
-                      float speechSpeed) {
+                      float speechSpeed, VoiceLanguage voiceLanguage) {
         AudioTrack track = null;
         try {
             if (!isSessionActive(session)) return;
@@ -316,8 +188,6 @@ public final class NeuralTtsService {
             int bufferSize = Math.max(minBufferSize * 4,
                     sampleRate * 2 * OUTPUT_BUFFER_MS / 1000);
             BlockingQueue<AudioChunk> audioQueue = new ArrayBlockingQueue<>(AUDIO_QUEUE_CAPACITY);
-            generationExecutor.execute(() -> generateAudio(session, segments, audioQueue,
-                    speechSpeed));
             track = new AudioTrack.Builder()
                     .setAudioAttributes(new AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -341,6 +211,8 @@ public final class NeuralTtsService {
                 }
                 audioTrack = track;
             }
+            generationExecutor.execute(() -> generateAudio(session, segments, audioQueue,
+                    speechSpeed, voiceLanguage));
             track.setVolume(1.0f);
             List<AudioChunk> prebuffer = new ArrayList<>();
             int bufferedSamples = 0;
@@ -349,6 +221,10 @@ public final class NeuralTtsService {
             while (isSessionActive(session) && bufferedSamples < prebufferTargetSamples) {
                 AudioChunk chunk = audioQueue.poll(250, TimeUnit.MILLISECONDS);
                 if (chunk == null) continue;
+                if (chunk.errorMessage != null) {
+                    notifyError(listener, session, chunk.errorMessage);
+                    return;
+                }
                 if (chunk.end) {
                     reachedEnd = true;
                     break;
@@ -374,6 +250,10 @@ public final class NeuralTtsService {
             while (isSessionActive(session)) {
                 AudioChunk chunk = audioQueue.poll(250, TimeUnit.MILLISECONDS);
                 if (chunk == null) continue;
+                if (chunk.errorMessage != null) {
+                    notifyError(listener, session, chunk.errorMessage);
+                    return;
+                }
                 if (chunk.end) {
                     waitForPlaybackDrain(track, playbackStartFrame, framesWritten, session, bufferSize,
                             sampleRate);
@@ -383,15 +263,22 @@ public final class NeuralTtsService {
                 notifySegmentStarted(listener, session, chunk);
                 framesWritten += writeAudio(track, chunk.samples);
             }
-        } catch (Exception error) {
+        } catch (OutOfMemoryError error) {
+            Log.e(TAG, "Memória insuficiente para gerar ou reproduzir voz", error);
+            notifyError(listener, session, "Memória insuficiente para gerar a voz local.");
+            cancelPlaybackSession(session);
+        } catch (Exception | LinkageError error) {
             Log.e(TAG, "Falha ao gerar ou reproduzir voz", error);
+            notifyError(listener, session, "Não foi possível gerar a voz local.");
+            cancelPlaybackSession(session);
         } finally {
             releaseTrack(track);
         }
     }
 
     private void generateAudio(int session, List<String> segments,
-                               BlockingQueue<AudioChunk> audioQueue, float speechSpeed) {
+                               BlockingQueue<AudioChunk> audioQueue, float speechSpeed,
+                               VoiceLanguage voiceLanguage) {
         try {
             for (int segmentIndex = 0; segmentIndex < segments.size(); segmentIndex++) {
                 if (!isSessionActive(session)) return;
@@ -399,11 +286,17 @@ public final class NeuralTtsService {
                 for (String part : splitText(segments.get(segmentIndex))) {
                     if (!isSessionActive(session)) return;
                     if (!generateIntoQueue(session, part, audioQueue, segmentIndex,
-                            hasStartedSegment, speechSpeed)) return;
+                            hasStartedSegment, speechSpeed, voiceLanguage)) return;
                 }
             }
-        } catch (Exception error) {
+        } catch (OutOfMemoryError error) {
+            Log.e(TAG, "Memória insuficiente ao gerar trecho da voz", error);
+            offerAudio(session, audioQueue, AudioChunk.failure(
+                    "Memória insuficiente para gerar a voz local."));
+        } catch (Exception | LinkageError error) {
             Log.e(TAG, "Falha ao gerar trecho da voz", error);
+            offerAudio(session, audioQueue, AudioChunk.failure(
+                    "Não foi possível gerar a voz local."));
         } finally {
             offerAudio(session, audioQueue, AudioChunk.end());
         }
@@ -425,6 +318,10 @@ public final class NeuralTtsService {
         return !closed && playbackSession.get() == session;
     }
 
+    private void cancelPlaybackSession(int session) {
+        if (playbackSession.compareAndSet(session, session + 1)) stopAudio();
+    }
+
     private int sampleRate() {
         synchronized (ttsLock) {
             if (tts == null) throw new IllegalStateException("Voz local indisponível");
@@ -434,11 +331,11 @@ public final class NeuralTtsService {
 
     private boolean generateIntoQueue(int session, String text, BlockingQueue<AudioChunk> audioQueue,
                                       int segmentIndex, boolean[] hasStartedSegment,
-                                      float speechSpeed) {
+                                      float speechSpeed, VoiceLanguage voiceLanguage) {
         AudioChunk chunk;
         synchronized (ttsLock) {
             if (tts == null || !isSessionActive(session)) return false;
-            GeneratedAudio generated = generateNarratorAudio(text, speechSpeed);
+            GeneratedAudio generated = generateNarratorAudio(text, speechSpeed, voiceLanguage);
             if (!isSessionActive(session) || generated == null) return false;
             float[] samples = generated.getSamples();
             if (samples == null || samples.length == 0) return isSessionActive(session);
@@ -451,12 +348,13 @@ public final class NeuralTtsService {
         return offerAudio(session, audioQueue, chunk);
     }
 
-    private GeneratedAudio generateNarratorAudio(String text, float speechSpeed) {
+    private GeneratedAudio generateNarratorAudio(String text, float speechSpeed,
+                                                  VoiceLanguage voiceLanguage) {
         GenerationConfig config = new GenerationConfig();
         config.setSid(NARRATOR_SPEAKER_ID);
         config.setNumSteps(NARRATOR_NUM_STEPS);
         config.setSpeed(speechSpeed);
-        config.setExtra(Collections.singletonMap("lang", "pt"));
+        config.setExtra(Collections.singletonMap("lang", voiceLanguage.getModelCode()));
         return tts.generateWithConfig(text, config);
     }
 
@@ -606,38 +504,27 @@ public final class NeuralTtsService {
         final int segmentIndex;
         final boolean startsSegment;
         final boolean end;
+        final String errorMessage;
 
         AudioChunk(short[] samples, int segmentIndex, boolean startsSegment, boolean end) {
+            this(samples, segmentIndex, startsSegment, end, null);
+        }
+
+        AudioChunk(short[] samples, int segmentIndex, boolean startsSegment, boolean end,
+                   String errorMessage) {
             this.samples = samples;
             this.segmentIndex = segmentIndex;
             this.startsSegment = startsSegment;
             this.end = end;
+            this.errorMessage = errorMessage;
         }
 
         static AudioChunk end() {
             return new AudioChunk(new short[0], -1, false, true);
         }
-    }
 
-    private static final class SystemUtterance {
-        final String id;
-        final String text;
-        final int session;
-        final int segmentIndex;
-        final boolean startsSegment;
-        final ProgressListener listener;
-        final VoiceLanguage language;
-        boolean last;
-
-        SystemUtterance(String id, String text, int session, int segmentIndex,
-                        boolean startsSegment, ProgressListener listener, VoiceLanguage language) {
-            this.id = id;
-            this.text = text;
-            this.session = session;
-            this.segmentIndex = segmentIndex;
-            this.startsSegment = startsSegment;
-            this.listener = listener;
-            this.language = language;
+        static AudioChunk failure(String message) {
+            return new AudioChunk(new short[0], -1, false, false, message);
         }
     }
 
@@ -653,25 +540,6 @@ public final class NeuralTtsService {
             } catch (IllegalStateException ignored) {
             }
             track.release();
-        }
-    }
-
-    private void stopSystemTts() {
-        systemUtterances.clear();
-        synchronized (systemTtsLock) {
-            if (systemTts == null) return;
-            try {
-                systemTts.stop();
-            } catch (RuntimeException error) {
-                Log.w(TAG, "Não foi possível parar a voz do sistema", error);
-            }
-        }
-    }
-
-    private void clearSystemUtterances(int session) {
-        for (String id : systemUtterances.keySet()) {
-            SystemUtterance utterance = systemUtterances.get(id);
-            if (utterance != null && utterance.session == session) systemUtterances.remove(id);
         }
     }
 
@@ -699,24 +567,9 @@ public final class NeuralTtsService {
         stop();
         playbackExecutor.shutdownNow();
         generationExecutor.shutdownNow();
-        systemSpeechExecutor.shutdownNow();
         synchronized (ttsLock) {
             if (tts != null) tts.release();
             tts = null;
-        }
-        TextToSpeech voice;
-        synchronized (systemTtsLock) {
-            voice = systemTts;
-            systemTts = null;
-            systemTtsReady = false;
-            systemTtsLock.notifyAll();
-        }
-        if (voice != null) {
-            try {
-                voice.shutdown();
-            } catch (RuntimeException error) {
-                Log.w(TAG, "Não foi possível encerrar a voz do sistema", error);
-            }
         }
     }
 }
