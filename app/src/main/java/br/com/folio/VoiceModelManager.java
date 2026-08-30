@@ -273,7 +273,7 @@ public final class VoiceModelManager {
             connection.setConnectTimeout(20_000);
             connection.setReadTimeout(30_000);
             connection.setRequestProperty("Accept-Encoding", "identity");
-            connection.setRequestProperty("User-Agent", "Folio-Android/2.00");
+                connection.setRequestProperty("User-Agent", "Folio-Android/2.01");
             throwIfCancelled();
             int responseCode = connection.getResponseCode();
             if (responseCode < HttpsURLConnection.HTTP_OK

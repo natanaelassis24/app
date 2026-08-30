@@ -3,20 +3,34 @@ package br.com.folio;
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.BroadcastReceiver;
 import android.content.ComponentCallbacks2;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.graphics.Typeface;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.text.Layout;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
 import android.text.TextUtils;
+import android.text.style.AlignmentSpan;
+import android.text.style.LeadingMarginSpan;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StyleSpan;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -139,15 +153,17 @@ public class MainActivity extends Activity {
     private volatile boolean narratorLoading;
     private AlertDialog voicePickerDialog;
     private AlertDialog voiceDownloadDialog;
+    private AlertDialog languagePickerDialog;
+    private AlertDialog speechSpeedPickerDialog;
     private SystemTtsService.VoiceLanguage pendingVoicePickerLanguage;
     private SystemTtsService.VoiceLanguage requestedVoiceLanguage;
-    private boolean languageSelectorTouched;
     private boolean voiceDownloadRequested;
     private final VoiceModelManager.Listener voiceModelListener = this::onVoiceModelStateChanged;
     private volatile boolean destroyed;
     private volatile int pdfImportGeneration;
     private boolean siteReadingStarting;
     private String pendingSpeech;
+    private List<String> activePdfSpeechSegments = new ArrayList<>();
     private List<StoryBlock> pendingSiteBlocks;
     private int pendingSiteNarrationSessionId;
     private List<StoryBlock> activeSiteBlocks = new ArrayList<>();
@@ -163,6 +179,10 @@ public class MainActivity extends Activity {
     private boolean readingMode;
     private boolean siteReadingMode;
     private boolean narrationStopped;
+    private boolean narrationPaused;
+    private long activeNarrationRequestId;
+    private long narrationRequestSequence;
+    private boolean narrationEventsRegistered;
     private boolean pdfReading;
     private int dynamicStoryLoadAttempts;
     private int emptyDynamicStoryLoadAttempts;
@@ -181,6 +201,13 @@ public class MainActivity extends Activity {
     private int themeKnobColor = LIGHT_SURFACE;
     private int sunColor = Color.rgb(28, 28, 28);
     private int moonColor = Color.rgb(104, 104, 104);
+    private final BroadcastReceiver narrationPlaybackReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (NarrationPlaybackService.ACTION_PLAYBACK_EVENT.equals(intent.getAction())) {
+                handleNarrationPlaybackEvent(intent);
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -300,7 +327,7 @@ public class MainActivity extends Activity {
         }
         VoiceModelManager.Snapshot snapshot = manager.getSnapshot();
         if (snapshot.state == VoiceModelManager.State.READY) {
-            prepareNarrator();
+            resumePendingNarration();
             return;
         }
         if (snapshot.state == VoiceModelManager.State.DOWNLOADING
@@ -397,7 +424,7 @@ public class MainActivity extends Activity {
             dismissVoiceDownloadDialog();
             if (resumeReading) {
                 updateStatus("Voz local pronta — iniciando a leitura...");
-                prepareNarrator();
+                resumePendingNarration();
             } else {
                 updateStatus("Voz local pronta para usar offline.");
             }
@@ -428,10 +455,10 @@ public class MainActivity extends Activity {
                 labelText = "Idioma";
                 break;
             case FAILED:
-                labelText = "Toque para baixar";
+                labelText = "Tentar baixar";
                 break;
             default:
-                labelText = "Idioma · baixar voz";
+                labelText = "Baixar voz";
                 break;
         }
         languageLabel.setText(labelText);
@@ -444,9 +471,244 @@ public class MainActivity extends Activity {
         voiceDownloadDialog = null;
     }
 
-    private void resumePendingNarration() {
+    private void showLanguagePicker() {
+        if (isFinishing() || destroyed) return;
+        if (languagePickerDialog != null && languagePickerDialog.isShowing()) return;
+
+        final AlertDialog dialog = new AlertDialog.Builder(this).create();
+        LinearLayout content = createPickerContent();
+        TextView title = label("Idioma da voz", 20, textColor);
+        title.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(38), 1));
+        ImageButton closeButton = dialogCloseButton();
+        titleRow.addView(closeButton, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        content.addView(titleRow, new LinearLayout.LayoutParams(-1, dp(38)));
+        closeButton.setOnClickListener(view -> dialog.dismiss());
+
+        TextView description = label("Escolha o idioma ou baixe a voz local.", 13,
+                mutedTextColor);
+        description.setGravity(Gravity.START);
+        description.setPadding(0, 0, 0, dp(10));
+        content.addView(description, new LinearLayout.LayoutParams(-1, -2));
+
+        VoiceModelManager manager = voiceModelManager;
+        VoiceModelManager.Snapshot snapshot = manager == null ? null : manager.getSnapshot();
+        SystemTtsService.VoiceLanguage selectedLanguage = selectedVoiceLanguage();
+        SystemTtsService.VoiceLanguage[] languages = SystemTtsService.VoiceLanguage.values();
+        for (int index = 0; index < languages.length; index++) {
+            View card = createLanguagePickerCard(dialog, languages[index],
+                    languages[index] == selectedLanguage, snapshot);
+            LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
+            if (index > 0) cardParams.setMargins(0, dp(8), 0, 0);
+            content.addView(card, cardParams);
+        }
+
+        TextView sharedPackage = label("Um único pacote libera Português e Inglês para uso offline.",
+                11, mutedTextColor);
+        sharedPackage.setGravity(Gravity.START);
+        sharedPackage.setLineSpacing(0, 1.08f);
+        sharedPackage.setPadding(dp(2), dp(12), dp(2), 0);
+        content.addView(sharedPackage, new LinearLayout.LayoutParams(-1, -2));
+
+        dialog.setView(content);
+        languagePickerDialog = dialog;
+        dialog.setOnDismissListener(dismissed -> {
+            if (languagePickerDialog == dialog) languagePickerDialog = null;
+        });
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        }
+    }
+
+    private View createLanguagePickerCard(AlertDialog dialog,
+                                          SystemTtsService.VoiceLanguage language,
+                                          boolean selected,
+                                          VoiceModelManager.Snapshot snapshot) {
+        LinearLayout card = new LinearLayout(this);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(16), dp(10), dp(10), dp(10));
+        card.setBackground(selectorCardBackground(selected));
+        card.setClickable(true);
+        card.setFocusable(true);
+
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name = label(capitalizeLanguageName(language.getDisplayName()), 16, textColor);
+        name.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        TextView status = label(languagePickerStatus(selected, snapshot), 12, mutedTextColor);
+        status.setSingleLine(false);
+        status.setMaxLines(2);
+        info.addView(name, new LinearLayout.LayoutParams(-1, dp(24)));
+        info.addView(status, new LinearLayout.LayoutParams(-1, dp(28)));
+        card.addView(info, new LinearLayout.LayoutParams(0, dp(52), 1));
+
+        boolean canDownload = snapshot != null && (snapshot.state == VoiceModelManager.State.NOT_INSTALLED
+                || snapshot.state == VoiceModelManager.State.FAILED);
+        boolean isPreparing = snapshot != null && (snapshot.state == VoiceModelManager.State.DOWNLOADING
+                || snapshot.state == VoiceModelManager.State.VERIFYING);
+        boolean ready = snapshot != null && snapshot.state == VoiceModelManager.State.READY;
+        String actionText;
+        if (canDownload) actionText = snapshot.state == VoiceModelManager.State.FAILED
+                ? "Baixar de novo" : "Baixar voz";
+        else if (isPreparing) actionText = "Baixando…";
+        else if (ready && selected) actionText = "Selecionado";
+        else if (ready) actionText = "Usar";
+        else actionText = "Indisponível";
+
+        Button action = canDownload ? actionButton(actionText) : outlineButton(actionText);
+        action.setTextSize(11);
+        boolean enabled = canDownload || (ready && !selected);
+        if (!enabled) {
+            action.setEnabled(false);
+            action.setAlpha(0.6f);
+        }
+        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(dp(112), dp(44));
+        actionParams.setMargins(dp(10), 0, 0, 0);
+        card.addView(action, actionParams);
+
+        View.OnClickListener chooseLanguage = view -> {
+            selectVoiceLanguage(language);
+            if (dialog.isShowing()) dialog.dismiss();
+            if (canDownload) {
+                waitForVoiceModel(language);
+            } else if (ready) {
+                updateStatus("Voz em " + capitalizeLanguageName(language.getDisplayName())
+                        + " selecionada.");
+            }
+        };
+        if (enabled) {
+            card.setOnClickListener(chooseLanguage);
+            action.setOnClickListener(chooseLanguage);
+        }
+        return card;
+    }
+
+    private String languagePickerStatus(boolean selected, VoiceModelManager.Snapshot snapshot) {
+        if (snapshot == null) return "Gerenciador de voz indisponível";
+        switch (snapshot.state) {
+            case READY:
+                return selected ? "Voz selecionada e pronta para ouvir offline"
+                        : "Voz natural disponível offline";
+            case DOWNLOADING:
+                return "Baixando voz local: " + snapshot.progressPercent() + "%";
+            case VERIFYING:
+                return "Conferindo os arquivos da voz…";
+            case FAILED:
+                return "O download não foi concluído";
+            default:
+                return "Voz natural disponível para baixar";
+        }
+    }
+
+    private void selectVoiceLanguage(SystemTtsService.VoiceLanguage language) {
+        if (language == null) return;
+        int position = voiceLanguageIndex(language);
+        if (languageSelector != null && languageSelector.getSelectedItemPosition() != position) {
+            languageSelector.setSelection(position, false);
+        }
+        applyVoiceLanguageSelection(language);
+    }
+
+    private void applyVoiceLanguageSelection(SystemTtsService.VoiceLanguage language) {
+        if (language == null) return;
+        preferences.edit()
+                .putInt(VOICE_LANGUAGE_KEY, voiceLanguageIndex(language))
+                .putString(VOICE_LANGUAGE_CODE_KEY, language.getPreferenceKey())
+                .apply();
         SystemTtsService voice = narrator;
-        if (!ensureVoiceAvailable(voice)) return;
+        if (voice != null) configureNarrator(voice);
+    }
+
+    private int voiceLanguageIndex(SystemTtsService.VoiceLanguage language) {
+        SystemTtsService.VoiceLanguage[] languages = SystemTtsService.VoiceLanguage.values();
+        for (int index = 0; index < languages.length; index++) {
+            if (languages[index] == language) return index;
+        }
+        return 0;
+    }
+
+    private void showSpeechSpeedPicker() {
+        if (isFinishing() || destroyed) return;
+        if (speechSpeedPickerDialog != null && speechSpeedPickerDialog.isShowing()) return;
+
+        final AlertDialog dialog = new AlertDialog.Builder(this).create();
+        LinearLayout content = createPickerContent();
+        TextView title = label("Velocidade da voz", 20, textColor);
+        title.setTypeface(Typeface.create("sans", Typeface.BOLD));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(38), 1));
+        ImageButton closeButton = dialogCloseButton();
+        titleRow.addView(closeButton, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        content.addView(titleRow, new LinearLayout.LayoutParams(-1, dp(38)));
+        closeButton.setOnClickListener(view -> dialog.dismiss());
+
+        String[] speeds = {"0,75×", "1×", "1,25×", "1,5×"};
+        int selected = speechSpeedSelector == null ? 1 : speechSpeedSelector.getSelectedItemPosition();
+        for (int index = 0; index < speeds.length; index++) {
+            final int speedIndex = index;
+            boolean isSelected = index == selected;
+            LinearLayout card = new LinearLayout(this);
+            card.setGravity(Gravity.CENTER_VERTICAL);
+            card.setPadding(dp(18), 0, dp(18), 0);
+            card.setMinimumHeight(dp(56));
+            card.setBackground(selectorCardBackground(isSelected));
+            card.setClickable(true);
+            card.setFocusable(true);
+            TextView speed = label(speeds[index], 16, textColor);
+            speed.setTypeface(Typeface.create("sans", isSelected ? Typeface.BOLD : Typeface.NORMAL));
+            card.addView(speed, new LinearLayout.LayoutParams(0, dp(56), 1));
+            if (isSelected) {
+                TextView current = label("Selecionada", 12, mutedTextColor);
+                current.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+                card.addView(current, new LinearLayout.LayoutParams(dp(86), dp(56)));
+            }
+            card.setOnClickListener(view -> {
+                selectSpeechSpeed(speedIndex);
+                dialog.dismiss();
+            });
+            LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, dp(56));
+            if (index > 0) cardParams.setMargins(0, dp(8), 0, 0);
+            content.addView(card, cardParams);
+        }
+
+        dialog.setView(content);
+        speechSpeedPickerDialog = dialog;
+        dialog.setOnDismissListener(dismissed -> {
+            if (speechSpeedPickerDialog == dialog) speechSpeedPickerDialog = null;
+        });
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
+        }
+    }
+
+    private void selectSpeechSpeed(int position) {
+        if (position < 0 || position > 3) return;
+        if (speechSpeedSelector != null && speechSpeedSelector.getSelectedItemPosition() != position) {
+            speechSpeedSelector.setSelection(position, false);
+        }
+        preferences.edit().putInt(VOICE_SPEED_KEY, position).apply();
+        SystemTtsService voice = narrator;
+        if (voice != null) voice.setSpeechSpeed(selectedSpeechSpeed());
+        String[] speeds = {"0,75×", "1×", "1,25×", "1,5×"};
+        updateStatus("Velocidade da voz: " + speeds[position]);
+    }
+
+    private LinearLayout createPickerContent() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(20), dp(20), dp(20));
+        content.setBackground(selectorPopupBackground());
+        return content;
+    }
+
+    private void resumePendingNarration() {
+        if (!isVoiceModelReadyForNarration()) return;
         if (pendingSiteBlocks != null) {
             List<StoryBlock> blocks = pendingSiteBlocks;
             int siteSession = pendingSiteNarrationSessionId;
@@ -464,6 +726,13 @@ public class MainActivity extends Activity {
             pendingSpeech = null;
             startNarration(speech, "Narração pronta");
         }
+    }
+
+    private boolean isVoiceModelReadyForNarration() {
+        VoiceModelManager manager = voiceModelManager;
+        if (manager != null && manager.isModelReady()) return true;
+        waitForVoiceModel(selectedVoiceLanguage());
+        return false;
     }
 
     private void requestVoicePicker(SystemTtsService.VoiceLanguage language) {
@@ -531,7 +800,7 @@ public class MainActivity extends Activity {
             available.setPadding(0, dp(18), 0, dp(6));
             content.addView(available, new LinearLayout.LayoutParams(-1, dp(30)));
 
-            picker = new Spinner(this);
+            final Spinner voicePicker = new Spinner(this, Spinner.MODE_DROPDOWN);
             String[] labels = new String[options.size()];
             int selected = 0;
             String savedVoice = preferences.getString(voicePreferenceKey(language), "");
@@ -544,10 +813,12 @@ public class MainActivity extends Activity {
                     android.R.layout.simple_spinner_item, labels) {
                 @Override public View getView(int position, View convertView, ViewGroup parent) {
                     TextView view = (TextView) super.getView(position, convertView, parent);
+                    view.setText(labels[position]);
                     view.setTextColor(textColor);
                     view.setTextSize(14);
                     view.setSingleLine(true);
                     view.setEllipsize(TextUtils.TruncateAt.END);
+                    view.setPadding(dp(4), 0, dp(32), 0);
                     return view;
                 }
 
@@ -555,18 +826,20 @@ public class MainActivity extends Activity {
                                                        ViewGroup parent) {
                     TextView view = (TextView) super.getDropDownView(position, convertView,
                             parent);
+                    view.setText(labels[position]);
                     view.setTextColor(textColor);
                     view.setTextSize(14);
-                    view.setPadding(dp(16), dp(12), dp(16), dp(12));
-                    view.setBackgroundColor(surfaceColor);
+                    styleSelectorDropDownItem(view,
+                            position == voicePicker.getSelectedItemPosition());
                     return view;
                 }
             };
-            picker.setAdapter(adapter);
-            picker.setSelection(selected, false);
-            picker.setBackgroundTintList(ColorStateList.valueOf(primaryColor));
-            picker.setPopupBackgroundDrawable(fieldBackground());
-            content.addView(picker, new LinearLayout.LayoutParams(-1, dp(48)));
+            voicePicker.setAdapter(adapter);
+            voicePicker.setSelection(selected, false);
+            styleSelectorField(voicePicker);
+            voicePicker.post(() -> voicePicker.setDropDownWidth(voicePicker.getWidth()));
+            picker = voicePicker;
+            content.addView(voicePicker, new LinearLayout.LayoutParams(-1, dp(48)));
         }
 
         Button useButton = null;
@@ -843,14 +1116,11 @@ public class MainActivity extends Activity {
         languageSelector.setContentDescription("Escolha o idioma do texto para a voz");
         languageAdapter = createLanguageAdapter();
         languageSelector.setAdapter(languageAdapter);
-        languageSelector.setBackgroundTintList(ColorStateList.valueOf(primaryColor));
-        languageSelector.setPopupBackgroundDrawable(fieldBackground());
+        styleSelectorField(languageSelector);
         languageSelector.post(() -> languageSelector.setDropDownWidth(languageSelector.getWidth()));
         languageSelector.setOnTouchListener((view, event) -> {
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                languageSelectorTouched = true;
-            }
-            return false;
+            if (event.getActionMasked() == MotionEvent.ACTION_UP) showLanguagePicker();
+            return true;
         });
         int savedVoiceLanguage = savedVoiceLanguageIndex();
         languageSelector.setSelection(Math.max(0, Math.min(savedVoiceLanguage,
@@ -858,20 +1128,7 @@ public class MainActivity extends Activity {
         languageSelector.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position,
                                                  long id) {
-                SystemTtsService.VoiceLanguage language = voiceLanguageAt(position);
-                preferences.edit()
-                        .putInt(VOICE_LANGUAGE_KEY, position)
-                        .putString(VOICE_LANGUAGE_CODE_KEY, language.getPreferenceKey())
-                        .apply();
-                SystemTtsService voice = narrator;
-                if (voice != null) configureNarrator(voice);
-                if (languageSelectorTouched) {
-                    languageSelectorTouched = false;
-                    VoiceModelManager manager = voiceModelManager;
-                    if (manager == null || !manager.isModelReady()) {
-                        waitForVoiceModel(language);
-                    }
-                }
+                applyVoiceLanguageSelection(voiceLanguageAt(position));
             }
 
             @Override public void onNothingSelected(AdapterView<?> parent) {
@@ -884,12 +1141,17 @@ public class MainActivity extends Activity {
         speechSpeedLabel = label("Velocidade", 10, mutedTextColor);
         speechSpeedLabel.setSingleLine(true);
         speechSpeedLabel.setTypeface(Typeface.create("sans", Typeface.BOLD));
-        speechSpeedSelector = new Spinner(this);
+        speechSpeedSelector = new Spinner(this, Spinner.MODE_DROPDOWN);
         speechSpeedSelector.setContentDescription("Escolha a velocidade da voz");
         speechSpeedAdapter = createSpeechSpeedAdapter();
         speechSpeedSelector.setAdapter(speechSpeedAdapter);
-        speechSpeedSelector.setBackgroundTintList(ColorStateList.valueOf(primaryColor));
-        speechSpeedSelector.setPopupBackgroundDrawable(fieldBackground());
+        styleSelectorField(speechSpeedSelector);
+        speechSpeedSelector.post(() -> speechSpeedSelector.setDropDownWidth(
+                speechSpeedSelector.getWidth()));
+        speechSpeedSelector.setOnTouchListener((view, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_UP) showSpeechSpeedPicker();
+            return true;
+        });
         int savedSpeechSpeed = preferences.getInt(VOICE_SPEED_KEY, 1);
         speechSpeedSelector.setSelection(Math.max(0, Math.min(savedSpeechSpeed,
                 speechSpeedAdapter.getCount() - 1)), false);
@@ -904,10 +1166,10 @@ public class MainActivity extends Activity {
             @Override public void onNothingSelected(AdapterView<?> parent) {
             }
         });
-        languageControl.addView(languageLabel, new LinearLayout.LayoutParams(-1, dp(20)));
-        languageControl.addView(languageSelector, new LinearLayout.LayoutParams(-1, dp(32)));
-        speedControl.addView(speechSpeedLabel, new LinearLayout.LayoutParams(-1, dp(20)));
-        speedControl.addView(speechSpeedSelector, new LinearLayout.LayoutParams(-1, dp(32)));
+        languageControl.addView(languageLabel, new LinearLayout.LayoutParams(-1, dp(16)));
+        languageControl.addView(languageSelector, new LinearLayout.LayoutParams(-1, dp(36)));
+        speedControl.addView(speechSpeedLabel, new LinearLayout.LayoutParams(-1, dp(16)));
+        speedControl.addView(speechSpeedSelector, new LinearLayout.LayoutParams(-1, dp(36)));
 
         LinearLayout.LayoutParams languageParams = new LinearLayout.LayoutParams(0, dp(52), 1);
         LinearLayout.LayoutParams speedParams = new LinearLayout.LayoutParams(0, dp(52), 1);
@@ -949,7 +1211,7 @@ public class MainActivity extends Activity {
         closeStoryButton.setTextColor(primaryColor);
         closeStoryButton.setTextSize(12);
         closeStoryButton.setAllCaps(false);
-        closeStoryButton.setBackgroundColor(Color.TRANSPARENT);
+        styleOutlineButton(closeStoryButton);
         storyHeader.addView(storyTitles, new LinearLayout.LayoutParams(0, dp(51), 1));
         storyHeader.addView(voiceControlButton, new LinearLayout.LayoutParams(dp(84), dp(48)));
         storyHeader.addView(closeStoryButton, new LinearLayout.LayoutParams(dp(70), dp(48)));
@@ -1051,7 +1313,7 @@ public class MainActivity extends Activity {
             addressBar.setTextColor(textColor);
             addressBar.setHintTextColor(mutedTextColor);
         }
-        if (closeStoryButton != null) closeStoryButton.setTextColor(primaryColor);
+        if (closeStoryButton != null) styleOutlineButton(closeStoryButton);
         styleReaderVoiceButton(voiceControlButton);
         if (loadingIndicator != null) {
             loadingIndicator.setIndeterminateTintList(ColorStateList.valueOf(primaryColor));
@@ -1061,12 +1323,10 @@ public class MainActivity extends Activity {
         styleIconButton(tellStoryButton, neutralButtonColor, onNeutralButtonColor);
         styleIconButton(goButton, primaryColor, onPrimaryColor);
         if (languageSelector != null) {
-            languageSelector.setBackgroundTintList(ColorStateList.valueOf(primaryColor));
-            languageSelector.setPopupBackgroundDrawable(fieldBackground());
+            styleSelectorField(languageSelector);
         }
         if (speechSpeedSelector != null) {
-            speechSpeedSelector.setBackgroundTintList(ColorStateList.valueOf(primaryColor));
-            speechSpeedSelector.setPopupBackgroundDrawable(fieldBackground());
+            styleSelectorField(speechSpeedSelector);
         }
         if (languageAdapter != null) languageAdapter.notifyDataSetChanged();
         if (speechSpeedAdapter != null) speechSpeedAdapter.notifyDataSetChanged();
@@ -1214,7 +1474,8 @@ public class MainActivity extends Activity {
                 view.setTextSize(13);
                 view.setSingleLine(true);
                 view.setEllipsize(TextUtils.TruncateAt.END);
-                view.setPadding(0, 0, dp(2), 0);
+                view.setTypeface(Typeface.create("sans", Typeface.NORMAL));
+                view.setPadding(dp(4), 0, dp(32), 0);
                 return view;
             }
 
@@ -1224,10 +1485,8 @@ public class MainActivity extends Activity {
                 view.setText(languages[position]);
                 view.setTextColor(textColor);
                 view.setTextSize(15);
-                view.setGravity(Gravity.CENTER_VERTICAL);
-                view.setMinHeight(dp(48));
-                view.setPadding(dp(16), 0, dp(16), 0);
-                view.setBackgroundColor(surfaceColor);
+                styleSelectorDropDownItem(view, languageSelector != null
+                        && position == languageSelector.getSelectedItemPosition());
                 return view;
             }
         };
@@ -1261,23 +1520,36 @@ public class MainActivity extends Activity {
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
                 TextView view = (TextView) super.getView(position, convertView, parent);
+                view.setText(speeds[position]);
                 view.setTextColor(textColor);
                 view.setTextSize(13);
                 view.setSingleLine(true);
-                view.setPadding(0, 0, dp(2), 0);
+                view.setTypeface(Typeface.create("sans", Typeface.NORMAL));
+                view.setPadding(dp(4), 0, dp(32), 0);
                 return view;
             }
 
             @Override
             public View getDropDownView(int position, View convertView, ViewGroup parent) {
                 TextView view = (TextView) super.getDropDownView(position, convertView, parent);
+                view.setText(speeds[position]);
                 view.setTextColor(textColor);
                 view.setTextSize(15);
-                view.setPadding(dp(16), dp(12), dp(16), dp(12));
-                view.setBackgroundColor(surfaceColor);
+                styleSelectorDropDownItem(view, speechSpeedSelector != null
+                        && position == speechSpeedSelector.getSelectedItemPosition());
                 return view;
             }
         };
+    }
+
+    private void styleSelectorDropDownItem(TextView view, boolean selected) {
+        if (view == null) return;
+        view.setGravity(Gravity.CENTER_VERTICAL);
+        view.setMinHeight(dp(56));
+        view.setPadding(dp(20), 0, dp(20), 0);
+        view.setTypeface(Typeface.create("sans", selected ? Typeface.BOLD : Typeface.NORMAL));
+        view.setBackground(new InsetDrawable(selectorCardBackground(selected),
+                dp(5), dp(4), dp(5), dp(4)));
     }
 
     private TextView label(String text, int size, int color) {
@@ -1341,6 +1613,18 @@ public class MainActivity extends Activity {
         return button;
     }
 
+    private ImageButton dialogCloseButton() {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(R.drawable.ic_close);
+        button.setContentDescription("Fechar painel");
+        button.setPadding(dp(8), dp(8), dp(8), dp(8));
+        button.setScaleType(ImageButton.ScaleType.CENTER);
+        button.setColorFilter(textColor);
+        button.setBackground(outlineBackground(surfaceColor, borderColor));
+        button.setElevation(0);
+        return button;
+    }
+
     private void styleIconButton(ImageButton button, int background, int icon) {
         if (button == null) return;
         button.setColorFilter(icon);
@@ -1369,6 +1653,40 @@ public class MainActivity extends Activity {
         GradientDrawable background = roundedBackground(surfaceColor, dp(18));
         background.setStroke(dp(1), borderColor);
         return background;
+    }
+
+    private GradientDrawable selectorPopupBackground() {
+        GradientDrawable background = roundedBackground(backgroundColor, dp(20));
+        background.setStroke(dp(1), borderColor);
+        return background;
+    }
+
+    private GradientDrawable selectorCardBackground(boolean selected) {
+        int cardColor = selected
+                ? (darkMode ? Color.rgb(42, 42, 42) : Color.rgb(246, 246, 246))
+                : surfaceColor;
+        return outlineBackground(cardColor, selected ? primaryColor : borderColor);
+    }
+
+    private LayerDrawable selectorFieldBackground() {
+        GradientDrawable field = outlineBackground(surfaceColor, borderColor);
+        Drawable arrow = getDrawable(R.drawable.ic_chevron_down);
+        if (arrow == null) return new LayerDrawable(new Drawable[]{field});
+        arrow = arrow.mutate();
+        arrow.setTint(mutedTextColor);
+        LayerDrawable background = new LayerDrawable(new Drawable[]{field, arrow});
+        background.setLayerGravity(1, Gravity.END | Gravity.CENTER_VERTICAL);
+        background.setLayerWidth(1, dp(18));
+        background.setLayerHeight(1, dp(18));
+        background.setLayerInsetEnd(1, dp(10));
+        return background;
+    }
+
+    private void styleSelectorField(Spinner selector) {
+        if (selector == null) return;
+        selector.setBackground(selectorFieldBackground());
+        selector.setPadding(dp(8), 0, dp(8), 0);
+        selector.setPopupBackgroundDrawable(selectorPopupBackground());
     }
 
     private int dp(int value) {
@@ -1469,6 +1787,7 @@ public class MainActivity extends Activity {
         final String documentName = pdfDisplayName(pdfUri);
         hideStoryPanel(true);
         pdfReading = false;
+        activePdfSpeechSegments = new ArrayList<>();
         if (pageTitle != null) pageTitle.setText(documentName);
         if (pageSubtitle != null) pageSubtitle.setText("PDF local");
         updateStatus("Reconhecendo o texto do PDF...");
@@ -1515,26 +1834,64 @@ public class MainActivity extends Activity {
             updateStatus("Não encontrei texto para ler neste PDF.");
             return;
         }
-        setReadingMode(true);
         pdfReading = true;
+        activePdfSpeechSegments = result.getSpeechSegments();
+        setReadingMode(true);
         if (storyLabel != null) storyLabel.setText("PDF reconhecido");
         if (storyMeta != null) {
             String pageSummary = result.processedPageCount + " de " + result.documentPageCount
                     + (result.truncated ? " páginas (parcial)" : " páginas");
             storyMeta.setText(documentName + " • " + pageSummary);
         }
-        if (storyContent != null) storyContent.setText(result.text);
+        if (storyContent != null) {
+            storyContent.setText(buildFormattedPdfText(result), TextView.BufferType.SPANNABLE);
+        }
         if (storyPanel != null) {
             storyPanel.setVisibility(View.VISIBLE);
             storyPanel.setAlpha(0.0f);
             storyPanel.setTranslationY(dp(12));
             storyPanel.animate().alpha(1.0f).translationY(0).setDuration(220).start();
         }
+        if (storyScroll != null) {
+            storyScroll.post(() -> storyScroll.fullScroll(View.FOCUS_UP));
+        }
         narrationStopped = true;
         updateVoiceControl();
         updateStatus(result.truncated
                 ? "PDF muito longo — uma parte foi carregada. Toque em Ouvir para começar."
                 : "PDF reconhecido — toque em Ouvir para começar.");
+    }
+
+    /** Applies book typography after PdfTextReader rebuilds the PDF's visual lines as blocks. */
+    private CharSequence buildFormattedPdfText(PdfTextReader.Result result) {
+        SpannableStringBuilder formatted = new SpannableStringBuilder();
+        if (result == null || result.blocks == null || result.blocks.isEmpty()) {
+            return result == null ? "" : result.text;
+        }
+        for (PdfTextReader.Block block : result.blocks) {
+            if (block == null || TextUtils.isEmpty(block.text)) continue;
+            if (formatted.length() > 0) formatted.append("\n\n");
+            int start = formatted.length();
+            formatted.append(block.text);
+            int end = formatted.length();
+            if (block.type == PdfTextReader.BlockType.CHAPTER) {
+                formatted.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), start, end,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                formatted.setSpan(new StyleSpan(Typeface.BOLD), start, end,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                formatted.setSpan(new RelativeSizeSpan(1.18f), start, end,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            } else if (block.type == PdfTextReader.BlockType.SCENE_BREAK) {
+                formatted.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), start, end,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                formatted.setSpan(new RelativeSizeSpan(0.92f), start, end,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            } else {
+                formatted.setSpan(new LeadingMarginSpan.Standard(dp(18), 0), start, end,
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+        }
+        return formatted.length() == 0 ? result.text : formatted;
     }
 
     private String pdfDisplayName(Uri uri) {
@@ -2014,7 +2371,21 @@ public class MainActivity extends Activity {
     private void startSiteNarration(List<StoryBlock> blocks, String status, int siteSession) {
         if (!isActiveSiteSession(siteSession) || blocks == null || blocks.isEmpty()) return;
         narrationStopped = false;
+        narrationPaused = false;
         updateVoiceControl();
+        if (!isVoiceModelReadyForNarration()) {
+            pendingSpeech = null;
+            pendingSiteBlocks = new ArrayList<>(blocks);
+            pendingSiteNarrationSessionId = siteSession;
+            updateStatus("Leitura pronta - preparando a voz");
+            return;
+        }
+        List<String> backgroundSegments = new ArrayList<>();
+        for (StoryBlock block : blocks) backgroundSegments.add(block.text);
+        pendingSpeech = null;
+        pendingSiteBlocks = null;
+        pendingSiteNarrationSessionId = 0;
+        if (startBackgroundNarration(backgroundSegments, status, siteSession)) return;
         SystemTtsService voice = narrator;
         if (voice == null) {
             pendingSpeech = null;
@@ -2168,6 +2539,7 @@ public class MainActivity extends Activity {
         siteReadingStarting = false;
         siteReadingMode = false;
         pdfReading = false;
+        activePdfSpeechSegments = new ArrayList<>();
         pendingSiteBlocks = null;
         pendingSiteNarrationSessionId = 0;
         activeSiteBlocks = new ArrayList<>();
@@ -2182,6 +2554,7 @@ public class MainActivity extends Activity {
 
     private void showResult(String result, boolean narrate, String status) {
         pdfReading = false;
+        activePdfSpeechSegments = new ArrayList<>();
         String content = result == null ? "" : result.trim();
         if (content.isEmpty()) {
             updateStatus("Não encontrei conteúdo para mostrar.");
@@ -2191,6 +2564,9 @@ public class MainActivity extends Activity {
             pendingSpeech = null;
             pendingSiteBlocks = null;
             pendingSiteNarrationSessionId = 0;
+            if (activeNarrationRequestId != 0L) NarrationPlaybackService.stop(this);
+            activeNarrationRequestId = 0L;
+            narrationPaused = false;
             if (narrator != null) narrator.stop();
             clearSiteReadingState();
         }
@@ -2245,6 +2621,8 @@ public class MainActivity extends Activity {
             } else {
                 storyContent.setPadding(dp(18), dp(12), dp(18), dp(16));
             }
+            storyContent.setJustificationMode(enabled && pdfReading
+                    ? Layout.JUSTIFICATION_MODE_INTER_WORD : Layout.JUSTIFICATION_MODE_NONE);
         }
 
         if (browserContainer != null) browserContainer.setVisibility(enabled ? View.GONE : View.VISIBLE);
@@ -2262,7 +2640,22 @@ public class MainActivity extends Activity {
 
     private void startNarration(String content, String status) {
         narrationStopped = false;
+        narrationPaused = false;
         updateVoiceControl();
+        if (!isVoiceModelReadyForNarration()) {
+            pendingSiteBlocks = null;
+            pendingSiteNarrationSessionId = 0;
+            pendingSpeech = content;
+            updateStatus("Resultado pronto - preparando a voz");
+            return;
+        }
+        List<String> backgroundSegments = pdfReading && !activePdfSpeechSegments.isEmpty()
+                ? new ArrayList<>(activePdfSpeechSegments) : new ArrayList<>();
+        if (backgroundSegments.isEmpty()) backgroundSegments.add(content);
+        pendingSpeech = null;
+        pendingSiteBlocks = null;
+        pendingSiteNarrationSessionId = 0;
+        if (startBackgroundNarration(backgroundSegments, status, 0)) return;
         SystemTtsService voice = narrator;
         if (voice != null) {
             if (!ensureVoiceAvailable(voice)) {
@@ -2277,7 +2670,7 @@ public class MainActivity extends Activity {
             pendingSiteBlocks = null;
             pendingSiteNarrationSessionId = 0;
             configureNarrator(voice);
-            voice.speak(content);
+            voice.speak(backgroundSegments, null);
             updateStatus(status);
         } else {
             pendingSiteBlocks = null;
@@ -2289,6 +2682,21 @@ public class MainActivity extends Activity {
     }
 
     private void toggleNarration() {
+        if (narrationPaused && hasBackgroundNarration()) {
+            narrationPaused = false;
+            narrationStopped = false;
+            NarrationPlaybackService.resume(this);
+            updateVoiceControl();
+            updateStatus("Retomando a leitura...");
+            return;
+        }
+        if (!narrationStopped && hasBackgroundNarration()) {
+            narrationPaused = true;
+            NarrationPlaybackService.pause(this);
+            updateVoiceControl();
+            updateStatus("Leitura pausada");
+            return;
+        }
         if (siteReadingMode) {
             if (narrationStopped) {
                 if (siteReadingPlaylist.isEmpty()) return;
@@ -2332,8 +2740,13 @@ public class MainActivity extends Activity {
 
     private void updateVoiceControl() {
         if (voiceControlButton == null) return;
+        if (narrationPaused) {
+            voiceControlButton.setText("Retomar");
+            voiceControlButton.setContentDescription("Retomar a narracao");
+            return;
+        }
         boolean restart = narrationStopped;
-        voiceControlButton.setText(restart ? "Ouvir" : "Parar voz");
+        voiceControlButton.setText(restart ? "Ouvir" : "Pausar");
         voiceControlButton.setContentDescription(restart
                 ? "Ouvir a leitura novamente" : "Parar a narração");
     }
@@ -2349,8 +2762,11 @@ public class MainActivity extends Activity {
             pendingSpeech = null;
             pendingSiteBlocks = null;
             pendingSiteNarrationSessionId = 0;
+            if (activeNarrationRequestId != 0L) NarrationPlaybackService.stop(this);
+            activeNarrationRequestId = 0L;
             if (narrator != null) narrator.stop();
             narrationStopped = true;
+            narrationPaused = false;
             updateVoiceControl();
         }
         if (savedReading) updateStatus("Leitura salva — toque no volume para continuar");
@@ -2375,10 +2791,48 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        if (!narrationEventsRegistered) {
+            IntentFilter filter = new IntentFilter(NarrationPlaybackService.ACTION_PLAYBACK_EVENT);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(narrationPlaybackReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(narrationPlaybackReceiver, filter);
+            }
+            narrationEventsRegistered = true;
+        }
+        synchronizeNarrationPlaybackState();
+    }
+
+    @Override
+    protected void onStop() {
+        if (narrationEventsRegistered) {
+            try {
+                unregisterReceiver(narrationPlaybackReceiver);
+            } catch (IllegalArgumentException ignored) {
+            }
+            narrationEventsRegistered = false;
+        }
+        super.onStop();
+    }
+
+    private void synchronizeNarrationPlaybackState() {
+        long requestId = NarrationPlaybackService.getReportedRequestId();
+        int state = NarrationPlaybackService.getReportedState();
+        if (requestId == 0L || state == NarrationPlaybackService.EVENT_STOPPED) return;
+        activeNarrationRequestId = requestId;
+        narrationStopped = false;
+        narrationPaused = state == NarrationPlaybackService.EVENT_PAUSED;
+        updateVoiceControl();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         if (browser != null) browser.onResume();
         if (languageAdapter != null) languageAdapter.notifyDataSetChanged();
+        synchronizeNarrationPlaybackState();
     }
 
     @Override
@@ -2397,6 +2851,100 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean startBackgroundNarration(List<String> segments, String status, int siteSession) {
+        if (segments == null || segments.isEmpty()) return false;
+        long requestId = ++narrationRequestSequence;
+        if (requestId <= 0L) {
+            narrationRequestSequence = 1L;
+            requestId = narrationRequestSequence;
+        }
+        activeNarrationRequestId = requestId;
+        releaseActivityNarratorForBackgroundPlayback();
+        boolean started = NarrationPlaybackService.start(this, segments, selectedVoiceLanguage(),
+                selectedSpeechSpeed(), requestId, siteSession);
+        if (!started) {
+            activeNarrationRequestId = 0L;
+            narrationStopped = true;
+            narrationPaused = false;
+            updateVoiceControl();
+            updateStatus("Nao foi possivel iniciar a leitura em segundo plano.");
+            return false;
+        }
+        narrationStopped = false;
+        narrationPaused = false;
+        updateVoiceControl();
+        updateStatus(status + " - controles na notificacao");
+        return true;
+    }
+
+    private void releaseActivityNarratorForBackgroundPlayback() {
+        SystemTtsService voice;
+        synchronized (serviceLock) {
+            voice = narrator;
+            narrator = null;
+        }
+        if (voice == null) return;
+        try {
+            voice.stop();
+            voice.close();
+        } catch (RuntimeException ignored) {
+            // The background service reports a usable error if it cannot initialize its own voice.
+        }
+    }
+
+    private boolean hasBackgroundNarration() {
+        return activeNarrationRequestId != 0L
+                && (NarrationPlaybackService.getReportedRequestId() == activeNarrationRequestId
+                || NarrationPlaybackService.getReportedState()
+                == NarrationPlaybackService.EVENT_PREPARING);
+    }
+
+    private void handleNarrationPlaybackEvent(Intent event) {
+        if (event == null || destroyed) return;
+        long requestId = event.getLongExtra(NarrationPlaybackService.EXTRA_REQUEST_ID, 0L);
+        if (requestId == 0L) return;
+        if (activeNarrationRequestId != 0L && activeNarrationRequestId != requestId) return;
+        int eventState = event.getIntExtra(NarrationPlaybackService.EXTRA_EVENT_STATE,
+                NarrationPlaybackService.EVENT_STOPPED);
+        int siteSession = event.getIntExtra(NarrationPlaybackService.EXTRA_SITE_SESSION, 0);
+        int segmentIndex = event.getIntExtra(NarrationPlaybackService.EXTRA_EVENT_SEGMENT, -1);
+        String message = event.getStringExtra(NarrationPlaybackService.EXTRA_EVENT_MESSAGE);
+        if (eventState == NarrationPlaybackService.EVENT_PREPARING
+                || eventState == NarrationPlaybackService.EVENT_PLAYING) {
+            activeNarrationRequestId = requestId;
+            narrationStopped = false;
+            narrationPaused = false;
+            updateVoiceControl();
+            if (siteSession != 0 && segmentIndex >= 0 && isActiveSiteSession(siteSession)) {
+                focusSiteStoryBlock(segmentIndex, siteSession);
+            } else if (!TextUtils.isEmpty(message)) {
+                updateStatus(message);
+            }
+            return;
+        }
+        if (eventState == NarrationPlaybackService.EVENT_PAUSED) {
+            activeNarrationRequestId = requestId;
+            narrationStopped = false;
+            narrationPaused = true;
+            updateVoiceControl();
+            updateStatus(TextUtils.isEmpty(message) ? "Leitura pausada" : message);
+            return;
+        }
+
+        activeNarrationRequestId = 0L;
+        narrationPaused = false;
+        if (eventState == NarrationPlaybackService.EVENT_COMPLETED
+                && siteSession != 0 && siteSession == siteReadingSessionId && siteReadingMode) {
+            narrationStopped = false;
+            updateVoiceControl();
+            continueOrFinishSiteReading(siteSession);
+            return;
+        }
+        narrationStopped = true;
+        updateVoiceControl();
+        if (!TextUtils.isEmpty(message)) updateStatus(message);
+    }
+
     @Override
     public void onLowMemory() {
         if (browser != null) browser.clearCache(false);
@@ -2412,6 +2960,12 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         saveCurrentStoryScroll();
         if (voicePickerDialog != null && voicePickerDialog.isShowing()) voicePickerDialog.dismiss();
+        if (languagePickerDialog != null && languagePickerDialog.isShowing()) {
+            languagePickerDialog.dismiss();
+        }
+        if (speechSpeedPickerDialog != null && speechSpeedPickerDialog.isShowing()) {
+            speechSpeedPickerDialog.dismiss();
+        }
         dismissVoiceDownloadDialog();
         if (voiceModelManager != null) voiceModelManager.removeListener(voiceModelListener);
         SystemTtsService voice;

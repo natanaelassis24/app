@@ -1,25 +1,25 @@
 # Folio
 
 <p align="center">
-  <a href="https://github.com/natanaelassis24/app/releases/download/v2.00/Folio-v2.00-debug.apk"><img src="https://img.shields.io/badge/Folio%202.00-Baixar%20para%20Android-181818?style=for-the-badge&logo=android&logoColor=white" alt="Baixar Folio 2.00 para Android" /></a>
+  <a href="https://github.com/natanaelassis24/app/releases/download/v2.01/Folio-v2.01-debug.apk"><img src="https://img.shields.io/badge/Folio%202.01-Baixar%20para%20Android-181818?style=for-the-badge&logo=android&logoColor=white" alt="Baixar Folio 2.01 para Android" /></a>
   <a href="https://github.com/natanaelassis24/app/releases"><img src="https://img.shields.io/badge/Ver%20releases-GitHub-58A6FF?style=for-the-badge&logo=github&logoColor=white" alt="Ver releases do Folio" /></a>
 </p>
 
 > Leitor Android para novelas na web e PDFs, com voz offline, retomada de leitura e privacidade local.
 
-## Baixar Folio 2.00
+## Baixar Folio 2.01
 
-[**⬇ Baixar o APK para Android**](https://github.com/natanaelassis24/app/releases/download/v2.00/Folio-v2.00-debug.apk) · [Ver todas as versões](https://github.com/natanaelassis24/app/releases)
+[**⬇ Baixar o APK para Android**](https://github.com/natanaelassis24/app/releases/download/v2.01/Folio-v2.01-debug.apk) · [Ver todas as versões](https://github.com/natanaelassis24/app/releases)
 
-> **Instalação:** este é um APK de depuração. Se o Android informar que a assinatura é incompatível com uma versão anterior, desinstale a versão antiga antes de instalar a 2.00.
+> **Instalação:** este é um APK de depuração. Se o Android informar que a assinatura é incompatível com uma versão anterior, desinstale a versão antiga antes de instalar a 2.01.
 
 ## Build atual
 
-**Folio 2.00 — build 11**
+**Folio 2.01 — build 12**
 
 | Plataforma | Android 8.0 ou superior |
 | --- | --- |
-| Versão do app | 2.00 (`versionCode 11`) |
+| Versão do app | 2.01 (`versionCode 12`) |
 | Vozes disponíveis | Português e Inglês |
 | Processamento | Local, no próprio aparelho |
 
