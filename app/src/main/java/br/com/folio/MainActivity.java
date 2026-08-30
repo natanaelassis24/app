@@ -86,6 +86,10 @@ public class MainActivity extends Activity {
     private static final String OBSOLETE_MODEL_DIRECTORY = "models";
     private static final String OBSOLETE_MODEL_FILE = "qwen3-0.6b-int4.litertlm";
     private static final String WELCOME_PAGE_URL = "https://folio.local/home";
+    private static final String LEGAL_PAGE_URL = "https://folio.local/legal";
+    private static final String LEGAL_EN_PAGE_URL = "https://folio.local/legal-en";
+    private static final String LEGAL_ACCEPTANCE_VERSION_KEY = "legal_acceptance_version";
+    private static final int LEGAL_DOCUMENT_VERSION = 1;
     private static final int PDF_PICKER_REQUEST_CODE = 2704;
     private static final long MAX_PDF_FILE_BYTES = 50L * 1024L * 1024L;
     private static final int MAX_RECENT_SITES = 4;
@@ -155,6 +159,7 @@ public class MainActivity extends Activity {
     private AlertDialog voiceDownloadDialog;
     private AlertDialog languagePickerDialog;
     private AlertDialog speechSpeedPickerDialog;
+    private AlertDialog legalConsentDialog;
     private SystemTtsService.VoiceLanguage pendingVoicePickerLanguage;
     private SystemTtsService.VoiceLanguage requestedVoiceLanguage;
     private boolean voiceDownloadRequested;
@@ -172,10 +177,14 @@ public class MainActivity extends Activity {
     private String activeStoryUrl = "";
     private final Set<String> queuedSiteBlockIds = new LinkedHashSet<>();
     private String storyReaderScript;
+    private String legalDocumentHtml;
+    private String legalDocumentEnglishHtml;
     private final Object serviceLock = new Object();
     private int pageRequestId;
     private boolean darkMode;
     private boolean showingWelcome = true;
+    private boolean showingLegalPage;
+    private boolean showingEnglishLegalPage;
     private boolean readingMode;
     private boolean siteReadingMode;
     private boolean narrationStopped;
@@ -223,6 +232,7 @@ public class MainActivity extends Activity {
         setContentView(createApp());
         applyTheme(false, backgroundColor, themeTrackColor);
         voiceModelManager.addListener(voiceModelListener);
+        rootLayout.post(this::showLegalConsentIfNeeded);
     }
 
     private void prepareNarrator() {
@@ -937,7 +947,8 @@ public class MainActivity extends Activity {
         preferences.edit().putBoolean(DARK_MODE_KEY, darkMode).apply();
         configurePalette();
         applyTheme(true, previousBackgroundColor, previousTrackColor);
-        if (showingWelcome) loadWelcomePage();
+        if (showingLegalPage) loadLegalPage(showingEnglishLegalPage);
+        else if (showingWelcome) loadWelcomePage();
     }
 
     private View createApp() {
@@ -1037,6 +1048,17 @@ public class MainActivity extends Activity {
                 loadingIndicator.setVisibility(View.GONE);
                 if (url != null && !"about:blank".equals(url)) addressBar.setText(url);
                 showingWelcome = isWelcomePageUrl(url);
+                showingLegalPage = isLegalPageUrl(url);
+                showingEnglishLegalPage = isEnglishLegalPageUrl(url);
+                if (showingLegalPage) {
+                    addressBar.setText("");
+                    pageTitle.setText(showingEnglishLegalPage ? "Terms and Privacy"
+                            : "Termos e Privacidade");
+                    pageSubtitle.setText("Folio");
+                    updateStatus(showingEnglishLegalPage ? "Terms of Use and Privacy Policy"
+                            : "Termos de Uso e Política de Privacidade");
+                    return;
+                }
                 if (showingWelcome) {
                     pageTitle.setText("folio");
                     pageSubtitle.setText("sua estante de histórias");
@@ -1060,6 +1082,8 @@ public class MainActivity extends Activity {
                 pdfImportGeneration++;
                 hideStoryPanel(true);
                 showingWelcome = isWelcomePageUrl(url);
+                showingLegalPage = isLegalPageUrl(url);
+                showingEnglishLegalPage = isEnglishLegalPageUrl(url);
                 loadingIndicator.setVisibility(View.VISIBLE);
                 updateStatus("Carregando página...");
             }
@@ -1377,6 +1401,8 @@ public class MainActivity extends Activity {
     private void loadWelcomePage() {
         if (browser == null) return;
         showingWelcome = true;
+        showingLegalPage = false;
+        showingEnglishLegalPage = false;
         if (pageTitle != null) pageTitle.setText("folio");
         if (pageSubtitle != null) pageSubtitle.setText("sua estante de histórias");
         if (addressBar != null) addressBar.setText("");
@@ -1408,6 +1434,13 @@ public class MainActivity extends Activity {
                 + "<span style='display:inline-block;background:" + primary + ";color:" + surface
                 + ";border-radius:12px;padding:10px 13px;font-size:13px;font-weight:bold'>"
                 + "Escolher PDF</span></section></a>"
+                + "<a href='folio://legal' style='display:block;color:" + text
+                + ";text-decoration:none;margin-bottom:14px'><section style='background:" + surface
+                + ";border:1px solid " + border + ";border-radius:18px;padding:16px'>"
+                + "<strong style='font-size:15px'>Termos de Uso e Privacidade</strong>"
+                + "<p style='color:" + muted
+                + ";font-size:14px;line-height:1.45;margin:7px 0 0'>Veja como o Folio trata "
+                + "a leitura, os PDFs, a voz local e os sites que você escolhe.</p></section></a>"
                 + "<section style='background:" + surface + ";border:1px solid " + border
                 + ";border-radius:18px;padding:16px'>"
                 + "<strong style='font-size:15px'>Leitura com privacidade</strong>"
@@ -1415,6 +1448,102 @@ public class MainActivity extends Activity {
                 + ";font-size:14px;line-height:1.45;margin:7px 0 0'>A leitura e a voz são "
                 + "processadas no próprio aparelho.</p></section></main></body></html>";
         browser.loadDataWithBaseURL(WELCOME_PAGE_URL, html, "text/html", "UTF-8", null);
+    }
+
+    private void loadLegalPage() {
+        loadLegalPage(false);
+    }
+
+    private void loadLegalPage(boolean inEnglish) {
+        if (browser == null) return;
+        pdfImportGeneration++;
+        hideStoryPanel(true);
+        showingWelcome = false;
+        showingLegalPage = true;
+        showingEnglishLegalPage = inEnglish;
+        if (pageTitle != null) pageTitle.setText(inEnglish ? "Terms and Privacy"
+                : "Termos e Privacidade");
+        if (pageSubtitle != null) pageSubtitle.setText("Folio");
+        if (addressBar != null) addressBar.setText("");
+        String document = loadLegalDocumentHtml(inEnglish);
+        if (TextUtils.isEmpty(document)) {
+            updateStatus(inEnglish ? "Legal documents could not be opened."
+                    : "Não foi possível abrir os documentos legais.");
+            return;
+        }
+        String themedDocument = document
+                .replace("{{BACKGROUND}}", htmlColor(backgroundColor))
+                .replace("{{SURFACE}}", htmlColor(surfaceColor))
+                .replace("{{TEXT}}", htmlColor(textColor))
+                .replace("{{MUTED}}", htmlColor(mutedTextColor))
+                .replace("{{PRIMARY}}", htmlColor(primaryColor))
+                .replace("{{BORDER}}", htmlColor(borderColor));
+        browser.loadDataWithBaseURL(inEnglish ? LEGAL_EN_PAGE_URL : LEGAL_PAGE_URL,
+                themedDocument, "text/html", "UTF-8", null);
+        updateStatus(inEnglish ? "Terms of Use and Privacy Policy"
+                : "Termos de Uso e Política de Privacidade");
+    }
+
+    private String loadLegalDocumentHtml(boolean inEnglish) {
+        String cachedDocument = inEnglish ? legalDocumentEnglishHtml : legalDocumentHtml;
+        if (!TextUtils.isEmpty(cachedDocument)) return cachedDocument;
+        try (InputStream input = getAssets().open(inEnglish ? "legal_en.html" : "legal.html");
+             ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            String document = output.toString("UTF-8");
+            if (inEnglish) legalDocumentEnglishHtml = document;
+            else legalDocumentHtml = document;
+            return document;
+        } catch (IOException error) {
+            return "";
+        }
+    }
+
+    private boolean hasAcceptedLegalDocuments() {
+        return preferences != null && preferences.getInt(LEGAL_ACCEPTANCE_VERSION_KEY, 0)
+                >= LEGAL_DOCUMENT_VERSION;
+    }
+
+    private void showLegalConsentIfNeeded() {
+        if (destroyed || isFinishing() || hasAcceptedLegalDocuments()) return;
+        if (legalConsentDialog != null && legalConsentDialog.isShowing()) return;
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Termos de Uso e Privacidade")
+                .setMessage("Antes de usar o Folio, leia e aceite os Termos de Uso e a Política "
+                        + "de Privacidade. O texto e a voz são processados no aparelho, mas os "
+                        + "sites que você abre e o download opcional da voz usam a internet.")
+                .setNegativeButton("Sair", (dismissed, which) -> finish())
+                .setNeutralButton("Ler", null)
+                .setPositiveButton("Aceitar e continuar", null)
+                .setCancelable(false)
+                .create();
+        legalConsentDialog = dialog;
+        dialog.setOnDismissListener(dismissed -> {
+            if (legalConsentDialog == dialog) legalConsentDialog = null;
+        });
+        dialog.setOnShowListener(shown -> {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
+                dialog.dismiss();
+                loadLegalPage();
+            });
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view ->
+                    acceptLegalDocuments());
+        });
+        dialog.show();
+    }
+
+    private void acceptLegalDocuments() {
+        if (preferences != null) preferences.edit()
+                .putInt(LEGAL_ACCEPTANCE_VERSION_KEY, LEGAL_DOCUMENT_VERSION)
+                .apply();
+        if (legalConsentDialog != null && legalConsentDialog.isShowing()) {
+            legalConsentDialog.dismiss();
+        }
+        navigateToHome();
+        updateStatus("Termos aceitos. Tela inicial pronta.");
     }
 
     /** Removes only the no-longer-used model files left by versions that offered translation. */
@@ -1442,6 +1571,14 @@ public class MainActivity extends Activity {
 
     private boolean isWelcomePageUrl(String url) {
         return url == null || "about:blank".equals(url) || WELCOME_PAGE_URL.equals(url);
+    }
+
+    private boolean isLegalPageUrl(String url) {
+        return LEGAL_PAGE_URL.equals(url) || LEGAL_EN_PAGE_URL.equals(url);
+    }
+
+    private boolean isEnglishLegalPageUrl(String url) {
+        return LEGAL_EN_PAGE_URL.equals(url);
     }
 
     private String pageHostLabel(String url) {
@@ -1694,6 +1831,26 @@ public class MainActivity extends Activity {
     }
 
     private boolean blockUnsupportedNavigation(Uri uri) {
+        if (isLocalEnglishLegalLink(uri)) {
+            loadLegalPage(true);
+            return true;
+        }
+        if (isLocalPortugueseLegalLink(uri)) {
+            loadLegalPage(false);
+            return true;
+        }
+        if (isLocalLegalLink(uri)) {
+            loadLegalPage();
+            return true;
+        }
+        if (isLocalLegalAcceptanceLink(uri)) {
+            acceptLegalDocuments();
+            return true;
+        }
+        if (isLocalHomeLink(uri)) {
+            navigateToHome();
+            return true;
+        }
         if (isLocalPdfLink(uri)) {
             openPdfPicker();
             return true;
@@ -1705,6 +1862,31 @@ public class MainActivity extends Activity {
         if (isAllowedWebUri(uri)) return false;
         updateStatus("Por segurança, abra somente links HTTPS.");
         return true;
+    }
+
+    private boolean isLocalLegalLink(Uri uri) {
+        return uri != null && "folio".equalsIgnoreCase(uri.getScheme())
+                && "legal".equalsIgnoreCase(uri.getHost());
+    }
+
+    private boolean isLocalEnglishLegalLink(Uri uri) {
+        return uri != null && "folio".equalsIgnoreCase(uri.getScheme())
+                && "legal-en".equalsIgnoreCase(uri.getHost());
+    }
+
+    private boolean isLocalPortugueseLegalLink(Uri uri) {
+        return uri != null && "folio".equalsIgnoreCase(uri.getScheme())
+                && "legal-pt".equalsIgnoreCase(uri.getHost());
+    }
+
+    private boolean isLocalLegalAcceptanceLink(Uri uri) {
+        return showingLegalPage && uri != null && "folio".equalsIgnoreCase(uri.getScheme())
+                && "legal-accept".equalsIgnoreCase(uri.getHost());
+    }
+
+    private boolean isLocalHomeLink(Uri uri) {
+        return uri != null && "folio".equalsIgnoreCase(uri.getScheme())
+                && "home".equalsIgnoreCase(uri.getHost());
     }
 
     private boolean isLocalPdfLink(Uri uri) {
@@ -1949,6 +2131,10 @@ public class MainActivity extends Activity {
             updateStatus(wasPdfReading ? "PDF fechado" : "Leitura salva — toque no volume para continuar");
             return true;
         }
+        if (showingLegalPage) {
+            navigateToHome();
+            return true;
+        }
         if (browser == null || !browser.canGoBack()) return false;
         browser.goBack();
         return true;
@@ -1961,6 +2147,7 @@ public class MainActivity extends Activity {
         browser.stopLoading();
         loadWelcomePage();
         updateStatus("Tela inicial");
+        rootLayout.post(this::showLegalConsentIfNeeded);
     }
 
     private static final class StoryBlock {
@@ -1994,7 +2181,7 @@ public class MainActivity extends Activity {
     }
 
     private void tellStory() {
-        if (showingWelcome || browser == null) {
+        if (showingWelcome || showingLegalPage || browser == null) {
             updateStatus("Abra uma página com uma história para começar a leitura.");
             return;
         }
@@ -2959,6 +3146,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         saveCurrentStoryScroll();
+        if (legalConsentDialog != null && legalConsentDialog.isShowing()) legalConsentDialog.dismiss();
         if (voicePickerDialog != null && voicePickerDialog.isShowing()) voicePickerDialog.dismiss();
         if (languagePickerDialog != null && languagePickerDialog.isShowing()) {
             languagePickerDialog.dismiss();

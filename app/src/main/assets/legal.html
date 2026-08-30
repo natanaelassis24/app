@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Termos de Uso e Privacidade — Folio</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: {{BACKGROUND}};
+      --surface: {{SURFACE}};
+      --text: {{TEXT}};
+      --muted: {{MUTED}};
+      --primary: {{PRIMARY}};
+      --border: {{BORDER}};
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--text);
+      font-family: sans-serif;
+      line-height: 1.55;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 28px 22px 38px; }
+    .eyebrow { color: var(--primary); font-size: 11px; font-weight: 700; letter-spacing: 1.25px; }
+    h1 { font-size: 28px; line-height: 1.15; margin: 10px 0 8px; }
+    h2 { font-size: 18px; line-height: 1.25; margin: 30px 0 8px; }
+    p, li { font-size: 15px; }
+    p { margin: 8px 0; }
+    ul { margin: 8px 0; padding-left: 21px; }
+    li { margin: 6px 0; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .notice {
+      margin: 20px 0;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 26px; }
+    .button {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 13px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 700;
+      background: var(--surface);
+    }
+    .button.primary { background: var(--primary); color: var(--surface); border-color: var(--primary); }
+    a { color: var(--primary); }
+    .divider { height: 1px; margin: 34px 0; background: var(--border); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">FOLIO · DOCUMENTOS LEGAIS</div>
+    <h1>Termos de Uso e Política de Privacidade</h1>
+    <p class="muted">Versão 1.0 · Última atualização: 30 de agosto de 2026</p>
+
+    <div class="notice">
+      <strong>Leitura local com escolhas claras.</strong>
+      <p>O Folio processa o texto e a voz no aparelho depois que a voz local é instalada. Sites que você abre e o download opcional da voz continuam usando a internet.</p>
+    </div>
+
+    <div class="actions">
+      <a class="button" href="folio://home">Voltar à tela inicial</a>
+      <a class="button" href="folio://legal-en">English</a>
+      <a class="button primary" href="folio://legal-accept">Aceitar e continuar</a>
+    </div>
+
+    <h2>Termos de Uso</h2>
+    <p>Ao selecionar <strong>“Aceitar e continuar”</strong>, você concorda com estes Termos e com a Política de Privacidade. Se não concordar, não use o Folio.</p>
+    <p>O Folio permite abrir páginas HTTPS e PDFs escolhidos por você, ouvir o texto com voz local e manter preferências, últimos sites e ponto de leitura no aparelho. Ele não fornece catálogo próprio de livros, não hospeda obras e não garante que todo site ou PDF possa ser lido corretamente.</p>
+
+    <h2>Uso responsável e conteúdo de terceiros</h2>
+    <p>Você é responsável pelos sites e PDFs que acessa e deve respeitar direitos autorais, contratos, regras dos sites e a legislação aplicável. Não use o aplicativo para copiar, redistribuir, comercializar conteúdo de terceiros sem autorização ou contornar medidas de acesso.</p>
+    <p>Sites, PDFs, obras e marcas pertencem aos seus titulares. Ao abrir um endereço, seu aparelho se conecta diretamente ao destino escolhido. Consultas sem endereço completo podem ser enviadas à busca do Google.</p>
+
+    <h2>Voz local, internet e segundo plano</h2>
+    <p>O download do pacote de voz Supertonic ocorre somente após sua confirmação e usa o repositório público Sherpa-ONNX no GitHub. Depois da instalação, a fala é gerada no aparelho. A leitura de sites continua dependente de conexão e das regras do site aberto.</p>
+    <p>Quando a narração está ativa, o Folio pode mostrar controles na notificação e na tela de bloqueio. O sistema pode interromper a reprodução conforme bateria, memória, chamadas e configurações do aparelho.</p>
+
+    <h2>Licença e disponibilidade</h2>
+    <p>O Folio e seus materiais próprios são disponibilizados sob licença de Propriedade Digital Privada. O aplicativo é fornecido “como está” e pode receber alterações ou ser descontinuado, respeitados os direitos previstos na legislação aplicável.</p>
+
+    <div class="divider"></div>
+
+    <h2>Política de Privacidade</h2>
+    <p>O Folio não possui conta de usuário, não usa anúncios, analytics ou servidor próprio para receber o texto lido. Mesmo assim, ele guarda alguns dados localmente para funcionar.</p>
+
+    <h2>Dados guardados no aparelho</h2>
+    <ul>
+      <li>tema, idioma, velocidade e estado da voz;</li>
+      <li>até quatro sites recentes e o ponto de leitura;</li>
+      <li>o PDF que você escolhe, processado localmente, e uma possível permissão de leitura do Android para esse documento;</li>
+      <li>trechos temporários da narração no cache privado enquanto a reprodução é preparada;</li>
+      <li>o pacote de voz baixado opcionalmente no armazenamento privado;</li>
+      <li>cache, cookies de primeira parte e armazenamento web dos sites visitados pelo WebView.</li>
+    </ul>
+
+    <h2>Conexões e terceiros</h2>
+    <p>Quando você abre um site, faz uma busca ou baixa a voz, seu aparelho se conecta diretamente ao serviço escolhido. Esses serviços podem receber dados técnicos normais de conexão, como IP e cabeçalhos, e seguem suas próprias políticas. O Folio usa apenas HTTPS, bloqueia cookies de terceiros, conteúdo misto e geolocalização.</p>
+
+    <h2>Como apagar dados</h2>
+    <p>Para apagar preferências, recentes, ponto de leitura, cache e a voz local, acesse <strong>Configurações do Android → Apps → Folio → Armazenamento → Limpar dados</strong>. Desinstalar o app também remove seus dados privados. Essa ação não apaga registros que sites externos ou o fornecedor do download possam manter.</p>
+
+    <h2>Contato e alterações</h2>
+    <p>Para dúvidas sobre estes documentos, use a <a href="https://github.com/natanaelassis24/app/issues">página de suporte do Folio</a>. Não publique dados pessoais, PDFs ou links privados em uma issue pública.</p>
+    <p>Os documentos podem ser atualizados quando os recursos ou as práticas de dados mudarem. Alterações relevantes exigirão novo aceite.</p>
+  </main>
+</body>
+</html>

@@ -92,6 +92,13 @@ Na primeira compilação, o Gradle precisa de acesso à internet para obter depe
 
 Para baixar a voz local pela primeira vez, o aplicativo também precisa de conexão e de aproximadamente 390 MB livres temporariamente. Após a conferência e a instalação, o arquivo temporário é removido.
 
+## Documentos legais
+
+- Português: [Termos de Uso](TERMS_OF_USE.md) · [Política de Privacidade](PRIVACY_POLICY.md)
+- English: [Terms of Use](TERMS_OF_USE_EN.md) · [Privacy Policy](PRIVACY_POLICY_EN.md)
+
+O Folio exibe os dois documentos no primeiro uso e mantém o acesso pela tela inicial. Antes de publicar na Google Play, disponibilize a Política de Privacidade em uma URL pública e informe essa URL, junto com a declaração de Segurança dos dados, na Play Console.
+
 ## Como instalar
 
 1. Baixe o APK pelo botão no topo desta página.

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Terms of Use and Privacy — Folio</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: {{BACKGROUND}};
+      --surface: {{SURFACE}};
+      --text: {{TEXT}};
+      --muted: {{MUTED}};
+      --primary: {{PRIMARY}};
+      --border: {{BORDER}};
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--text);
+      font-family: sans-serif;
+      line-height: 1.55;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 28px 22px 38px; }
+    .eyebrow { color: var(--primary); font-size: 11px; font-weight: 700; letter-spacing: 1.25px; }
+    h1 { font-size: 28px; line-height: 1.15; margin: 10px 0 8px; }
+    h2 { font-size: 18px; line-height: 1.25; margin: 30px 0 8px; }
+    p, li { font-size: 15px; }
+    p { margin: 8px 0; }
+    ul { margin: 8px 0; padding-left: 21px; }
+    li { margin: 6px 0; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .notice {
+      margin: 20px 0;
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 26px; }
+    .button {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 13px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 700;
+      background: var(--surface);
+    }
+    .button.primary { background: var(--primary); color: var(--surface); border-color: var(--primary); }
+    a { color: var(--primary); }
+    .divider { height: 1px; margin: 34px 0; background: var(--border); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="eyebrow">FOLIO · LEGAL DOCUMENTS</div>
+    <h1>Terms of Use and Privacy Policy</h1>
+    <p class="muted">Version 1.0 · Last updated: August 30, 2026</p>
+
+    <div class="notice">
+      <strong>Local reading with clear choices.</strong>
+      <p>Folio processes text and voice on your device after the local voice is installed. Websites you open and the optional voice download still use the internet.</p>
+    </div>
+
+    <div class="actions">
+      <a class="button" href="folio://home">Back to home</a>
+      <a class="button" href="folio://legal-pt">Português</a>
+      <a class="button primary" href="folio://legal-accept">Accept and continue</a>
+    </div>
+
+    <h2>Terms of Use</h2>
+    <p>By selecting <strong>“Accept and continue”</strong>, you agree to these Terms and the Privacy Policy. If you do not agree, do not use Folio.</p>
+    <p>Folio lets you open HTTPS pages and PDFs you choose, listen to text using a local voice, and keep preferences, recently opened sites, and a reading position on your device. It does not provide its own book catalog, host works, or guarantee that every website or PDF can be read correctly.</p>
+
+    <h2>Responsible use and third-party content</h2>
+    <p>You are responsible for the websites and PDFs you access and must respect copyright, contracts, website rules, and applicable law. Do not use the application to copy, redistribute, or commercially use third-party content without authorization or to bypass access controls.</p>
+    <p>Websites, PDFs, works, and trademarks belong to their respective owners. When you open an address, your device connects directly to the destination. Searches without a complete address may be sent to Google Search.</p>
+
+    <h2>Local voice, internet, and background playback</h2>
+    <p>The Supertonic voice package is downloaded only after your confirmation from the public Sherpa-ONNX repository on GitHub. Once installed, speech is generated on your device. Reading websites still depends on your connection and the rules of the website you open.</p>
+    <p>When narration is active, Folio may display controls in the notification and on the lock screen. The system can interrupt playback according to battery, memory, calls, and device settings.</p>
+
+    <h2>License and availability</h2>
+    <p>Folio and its proprietary materials are provided under a Private Digital Property license. The application is provided “as is” and may change or be discontinued, subject to rights required by applicable law.</p>
+
+    <div class="divider"></div>
+
+    <h2>Privacy Policy</h2>
+    <p>Folio has no user account, advertising, analytics, or dedicated server that receives the text being read. It still keeps some information locally to provide its features.</p>
+
+    <h2>Data stored on the device</h2>
+    <ul>
+      <li>theme, language, speed, and voice state;</li>
+      <li>up to four recently opened sites and the reading position;</li>
+      <li>the PDF you choose, processed locally, and a possible Android read permission for that document;</li>
+      <li>temporary narration segments in private cache while playback is prepared;</li>
+      <li>the optionally downloaded voice package in private storage;</li>
+      <li>cache, first-party cookies, and web storage from sites visited through WebView.</li>
+    </ul>
+
+    <h2>Connections and third parties</h2>
+    <p>When you open a website, search, or download a voice, your device connects directly to the selected service. Those services may receive normal technical connection data, such as IP address and headers, and are governed by their own policies. Folio uses HTTPS only and blocks third-party cookies, mixed content, and geolocation.</p>
+
+    <h2>How to delete data</h2>
+    <p>To delete preferences, recent sites, reading position, cache, and the local voice, go to <strong>Android Settings → Apps → Folio → Storage → Clear data</strong>. Uninstalling the app also removes its private data. This does not delete records kept by external websites or the voice-download provider.</p>
+
+    <h2>Contact and changes</h2>
+    <p>For questions about these documents, use the <a href="https://github.com/natanaelassis24/app/issues">Folio support page</a>. Do not post personal data, PDFs, or private links in a public issue.</p>
+    <p>These documents may be updated when features or data practices change. Material changes will require new acceptance.</p>
+  </main>
+</body>
+</html>
